@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../data/app_database.dart';
 import '../models.dart';
+import 'location_detail_page.dart';
+import 'move_item_page.dart';
+import 'qr_scanner_page.dart';
 
 String _formatQuantity(double value) {
   if (value == value.roundToDouble()) return value.toInt().toString();
@@ -18,6 +21,18 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
+  Future<void> _scanLocation() async {
+    final location = await Navigator.of(context).push<LocationNode>(
+      MaterialPageRoute(builder: (_) => const QrScannerPage()),
+    );
+    if (location == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => LocationDetailPage(location: location),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = [
@@ -30,6 +45,13 @@ class _HomeShellState extends State<HomeShell> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('家庭管理'),
+        actions: [
+          IconButton(
+            tooltip: '扫描位置二维码',
+            onPressed: _scanLocation,
+            icon: const Icon(Icons.qr_code_scanner),
+          ),
+        ],
       ),
       body: IndexedStack(index: _index, children: pages),
       bottomNavigationBar: NavigationBar(
@@ -162,6 +184,13 @@ class _ItemsPageState extends State<ItemsPage> {
     if (created == true) _reload();
   }
 
+  Future<void> _moveItem(HomeItem item) async {
+    final moved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => MoveItemPage(item: item)),
+    );
+    if (moved == true) _reload();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -215,7 +244,28 @@ class _ItemsPageState extends State<ItemsPage> {
                         '${item.locationPath}\n${item.category.isEmpty ? item.kind : item.category}',
                       ),
                       isThreeLine: true,
-                      trailing: Text('${_formatQuantity(item.quantity)} ${item.unit}'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('${_formatQuantity(item.quantity)} ${item.unit}'),
+                          PopupMenuButton<String>(
+                            tooltip: '物品操作',
+                            onSelected: (value) {
+                              if (value == 'move') _moveItem(item);
+                            },
+                            itemBuilder: (context) => const [
+                              PopupMenuItem(
+                                value: 'move',
+                                child: ListTile(
+                                  leading: Icon(Icons.drive_file_move_outlined),
+                                  title: Text('移动'),
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     );
                   },
                 );
@@ -525,6 +575,14 @@ class _LocationsPageState extends State<LocationsPage> {
                 leading: Icon(_locationIcon(location.type)),
                 title: Text(location.name),
                 subtitle: Text(location.path),
+                trailing: const Icon(Icons.qr_code_2),
+                onTap: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => LocationDetailPage(location: location),
+                    ),
+                  );
+                },
               );
             },
           );
@@ -572,6 +630,21 @@ class _InventoryPageState extends State<InventoryPage> {
     return _InventoryOverview(locations, counts);
   }
 
+  Future<void> _scanInventory() async {
+    final location = await Navigator.of(context).push<LocationNode>(
+      MaterialPageRoute(
+        builder: (_) => const QrScannerPage(title: '扫描要盘库的位置'),
+      ),
+    );
+    if (location == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => InventoryDetailPage(location: location),
+      ),
+    );
+    if (mounted) setState(() => _overview = _load());
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<_InventoryOverview>(
@@ -594,10 +667,19 @@ class _InventoryPageState extends State<InventoryPage> {
         }
 
         return ListView.separated(
-          itemCount: usable.length,
+          itemCount: usable.length + 1,
           separatorBuilder: (_, __) => const Divider(height: 1),
           itemBuilder: (context, index) {
-            final location = usable[index];
+            if (index == 0) {
+              return ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.qr_code_scanner)),
+                title: const Text('扫描二维码开始盘库'),
+                subtitle: const Text('直接扫描柜子、抽屉或收纳箱上的位置二维码'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _scanInventory,
+              );
+            }
+            final location = usable[index - 1];
             final count = overview.counts[location.id] ?? 0;
             return ListTile(
               leading: const CircleAvatar(child: Icon(Icons.fact_check_outlined)),
