@@ -34,6 +34,9 @@ jobs:
       - name: Patch Android permissions
         run: dart run tool/patch_android_permissions.dart
 
+      - name: Patch Android speech bridge
+        run: dart run tool/patch_android_speech_bridge.dart
+
       - name: Install dependencies
         run: flutter pub get
 
