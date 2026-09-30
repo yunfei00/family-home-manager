@@ -75,5 +75,4 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Test sync server
-        working-directory: server
-        run: pytest -q test_app.py
+        run: pytest -q server/test_app.py
