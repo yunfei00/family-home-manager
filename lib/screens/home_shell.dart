@@ -71,8 +71,8 @@ class _HomeShellState extends State<HomeShell> {
     final pages = [
       DashboardPage(key: ValueKey('dashboard-$_dataRevision')),
       ItemsPage(key: ValueKey('items-$_dataRevision')),
-      const LocationsPage(),
-      const InventoryPage(),
+      LocationsPage(key: ValueKey('locations-$_dataRevision')),
+      InventoryPage(key: ValueKey('inventory-$_dataRevision')),
       StockPage(key: ValueKey('stock-$_dataRevision')),
     ];
 
