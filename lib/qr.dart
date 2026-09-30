@@ -1,11 +1,12 @@
 const String locationQrPrefix = 'fhm://location/';
 
 String locationCodeFromId(int id) {
-  return 'FHM-LOC-' + id.toString().padLeft(6, '0');
+  final suffix = id.toString().padLeft(6, '0');
+  return 'FHM-LOC-$suffix';
 }
 
 String buildLocationQrPayload(String code) {
-  return locationQrPrefix + code;
+  return '$locationQrPrefix$code';
 }
 
 String? parseLocationQrPayload(String? raw) {
