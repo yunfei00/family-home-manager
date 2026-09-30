@@ -158,6 +158,12 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
             subtitle:
                 Text('${_formatQuantity(_item.quantity)} ${_item.unit}'),
           ),
+          if (_item.barcode != null && _item.barcode!.isNotEmpty)
+            ListTile(
+              leading: const Icon(Icons.qr_code_2),
+              title: const Text('商品条码'),
+              subtitle: SelectableText(_item.barcode!),
+            ),
           if (_item.notes.isNotEmpty)
             ListTile(
               leading: const Icon(Icons.notes_outlined),
