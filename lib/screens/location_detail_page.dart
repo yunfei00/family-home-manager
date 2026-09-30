@@ -37,7 +37,7 @@ class _LocationDetailPageState extends State<LocationDetailPage> {
         children: [
           Text(location.path, style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 6),
-          Text('位置编号：' + location.code),
+          Text('位置编号：${location.code}'),
           const SizedBox(height: 20),
           Center(
             child: Card(
@@ -94,7 +94,7 @@ class _LocationDetailPageState extends State<LocationDetailPage> {
                         title: Text(item.name),
                         subtitle: Text(item.category.isEmpty ? item.kind : item.category),
                         trailing: Text(
-                          _formatQuantity(item.quantity) + ' ' + item.unit,
+                          '${_formatQuantity(item.quantity)} ${item.unit}',
                         ),
                       ),
                     ),
