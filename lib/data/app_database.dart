@@ -17,7 +17,7 @@ class AppDatabase {
     final dbPath = await getDatabasesPath();
     final db = await openDatabase(
       p.join(dbPath, 'family_home_manager.db'),
-      version: 5,
+      version: 6,
       onCreate: _createSchema,
       onUpgrade: _upgradeSchema,
     );
@@ -52,6 +52,9 @@ class AppDatabase {
         notes TEXT NOT NULL DEFAULT '',
         photo_path TEXT,
         barcode TEXT,
+        is_consumable INTEGER NOT NULL DEFAULT 0,
+        minimum_quantity REAL,
+        expiry_date TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY(location_id) REFERENCES locations(id)
@@ -97,6 +100,19 @@ class AppDatabase {
         created_item_id INTEGER,
         FOREIGN KEY(session_id) REFERENCES inventory_sessions(id),
         FOREIGN KEY(created_item_id) REFERENCES items(id)
+      )
+    ''');
+
+    await database.execute('''
+      CREATE TABLE shopping_list (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id INTEGER,
+        name TEXT NOT NULL,
+        quantity REAL NOT NULL DEFAULT 1,
+        unit TEXT NOT NULL DEFAULT '个',
+        checked INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(item_id) REFERENCES items(id)
       )
     ''');
 
@@ -180,6 +196,32 @@ class AppDatabase {
           FOREIGN KEY(created_item_id) REFERENCES items(id)
         )
       ''');
+    }
+    if (oldVersion < 6) {
+      await database.execute(
+        'ALTER TABLE items ADD COLUMN is_consumable INTEGER NOT NULL DEFAULT 0',
+      );
+      await database.execute(
+        'ALTER TABLE items ADD COLUMN minimum_quantity REAL',
+      );
+      await database.execute(
+        'ALTER TABLE items ADD COLUMN expiry_date TEXT',
+      );
+      await database.execute('''
+        CREATE TABLE IF NOT EXISTS shopping_list (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          item_id INTEGER,
+          name TEXT NOT NULL,
+          quantity REAL NOT NULL DEFAULT 1,
+          unit TEXT NOT NULL DEFAULT '个',
+          checked INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY(item_id) REFERENCES items(id)
+        )
+      ''');
+      await database.execute(
+        'CREATE INDEX IF NOT EXISTS idx_shopping_list_checked ON shopping_list(checked)',
+      );
     }
   }
 
@@ -315,6 +357,9 @@ class AppDatabase {
     required String notes,
     String? photoPath,
     String? barcode,
+    bool isConsumable = false,
+    double? minimumQuantity,
+    DateTime? expiryDate,
   }) async {
     final db = await database;
     final now = DateTime.now().toIso8601String();
@@ -328,6 +373,9 @@ class AppDatabase {
       'notes': notes.trim(),
       'photo_path': photoPath,
       'barcode': barcode?.trim().isEmpty == true ? null : barcode?.trim(),
+      'is_consumable': isConsumable ? 1 : 0,
+      'minimum_quantity': minimumQuantity,
+      'expiry_date': expiryDate?.toIso8601String(),
       'created_at': now,
       'updated_at': now,
     });
@@ -361,6 +409,9 @@ class AppDatabase {
           'notes': '',
           'photo_path': null,
           'barcode': null,
+          'is_consumable': 0,
+          'minimum_quantity': null,
+          'expiry_date': null,
           'created_at': now,
           'updated_at': now,
         });
@@ -649,6 +700,157 @@ class AppDatabase {
       orderBy: 'name COLLATE NOCASE ASC',
     );
     return rows.map(InventoryUnexpectedRecord.fromMap).toList();
+  }
+
+  Future<void> updateStockSettings({
+    required int itemId,
+    required bool isConsumable,
+    double? minimumQuantity,
+    DateTime? expiryDate,
+  }) async {
+    final db = await database;
+    await db.update(
+      'items',
+      {
+        'is_consumable': isConsumable ? 1 : 0,
+        'minimum_quantity': minimumQuantity,
+        'expiry_date': expiryDate?.toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [itemId],
+    );
+  }
+
+  Future<void> setItemQuantity(int itemId, double quantity) async {
+    final db = await database;
+    await db.update(
+      'items',
+      {
+        'quantity': quantity < 0 ? 0 : quantity,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [itemId],
+    );
+  }
+
+  Future<List<HomeItem>> getConsumableItems() async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      '''
+      SELECT i.*, l.path AS location_path
+      FROM items i
+      JOIN locations l ON l.id = i.location_id
+      WHERE i.is_consumable = 1
+      ORDER BY i.name COLLATE NOCASE ASC
+      ''',
+    );
+    return rows.map(HomeItem.fromMap).toList();
+  }
+
+  Future<List<HomeItem>> getLowStockItems() async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      '''
+      SELECT i.*, l.path AS location_path
+      FROM items i
+      JOIN locations l ON l.id = i.location_id
+      WHERE i.is_consumable = 1
+        AND i.minimum_quantity IS NOT NULL
+        AND i.quantity <= i.minimum_quantity
+      ORDER BY (i.minimum_quantity - i.quantity) DESC, i.name COLLATE NOCASE ASC
+      ''',
+    );
+    return rows.map(HomeItem.fromMap).toList();
+  }
+
+  Future<List<HomeItem>> getExpiringItems({int withinDays = 30}) async {
+    final db = await database;
+    final now = DateTime.now();
+    final end = now.add(Duration(days: withinDays));
+    final rows = await db.rawQuery(
+      '''
+      SELECT i.*, l.path AS location_path
+      FROM items i
+      JOIN locations l ON l.id = i.location_id
+      WHERE i.expiry_date IS NOT NULL
+        AND i.expiry_date <= ?
+      ORDER BY i.expiry_date ASC
+      ''',
+      [end.toIso8601String()],
+    );
+    return rows.map(HomeItem.fromMap).toList();
+  }
+
+  Future<List<ShoppingListEntry>> getShoppingList({
+    bool includeChecked = true,
+  }) async {
+    final db = await database;
+    final rows = await db.query(
+      'shopping_list',
+      where: includeChecked ? null : 'checked = 0',
+      orderBy: 'checked ASC, created_at DESC',
+    );
+    return rows.map(ShoppingListEntry.fromMap).toList();
+  }
+
+  Future<int> addShoppingListEntry({
+    int? itemId,
+    required String name,
+    required double quantity,
+    required String unit,
+  }) async {
+    final db = await database;
+    return db.insert('shopping_list', {
+      'item_id': itemId,
+      'name': name.trim(),
+      'quantity': quantity <= 0 ? 1 : quantity,
+      'unit': unit.trim().isEmpty ? '个' : unit.trim(),
+      'checked': 0,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<bool> addLowStockItemToShoppingList(HomeItem item) async {
+    final db = await database;
+    final existing = await db.query(
+      'shopping_list',
+      columns: ['id'],
+      where: 'item_id = ? AND checked = 0',
+      whereArgs: [item.id],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) return false;
+
+    final minimum = item.minimumQuantity ?? item.quantity;
+    final shortage = minimum - item.quantity;
+    await addShoppingListEntry(
+      itemId: item.id,
+      name: item.name,
+      quantity: shortage > 0 ? shortage : 1,
+      unit: item.unit,
+    );
+    return true;
+  }
+
+  Future<void> setShoppingListChecked(int id, bool checked) async {
+    final db = await database;
+    await db.update(
+      'shopping_list',
+      {'checked': checked ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> deleteShoppingListEntry(int id) async {
+    final db = await database;
+    await db.delete(
+      'shopping_list',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   Future<Map<String, int>> getSummary() async {

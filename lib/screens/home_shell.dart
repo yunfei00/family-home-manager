@@ -12,6 +12,7 @@ import 'item_detail_page.dart';
 import 'location_detail_page.dart';
 import 'move_item_page.dart';
 import 'qr_scanner_page.dart';
+import 'stock_page.dart';
 
 String _formatQuantity(double value) {
   if (value == value.roundToDouble()) return value.toInt().toString();
@@ -60,6 +61,7 @@ class _HomeShellState extends State<HomeShell> {
       ItemsPage(key: ValueKey('items-$_dataRevision')),
       const LocationsPage(),
       const InventoryPage(),
+      StockPage(key: ValueKey('stock-$_dataRevision')),
     ];
 
     return Scaffold(
@@ -91,6 +93,7 @@ class _HomeShellState extends State<HomeShell> {
           NavigationDestination(icon: Icon(Icons.inventory_2_outlined), label: '物品'),
           NavigationDestination(icon: Icon(Icons.account_tree_outlined), label: '位置'),
           NavigationDestination(icon: Icon(Icons.fact_check_outlined), label: '盘库'),
+          NavigationDestination(icon: Icon(Icons.shopping_basket_outlined), label: '库存'),
         ],
       ),
     );

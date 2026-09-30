@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../data/app_database.dart';
 import '../models.dart';
 import '../photo_store.dart';
+import 'stock_page.dart';
 
 class ItemDetailPage extends StatefulWidget {
   const ItemDetailPage({
@@ -79,6 +80,21 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
         });
       }
     }
+  }
+
+  Future<void> _openStockSettings() async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => StockSettingsPage(item: _item),
+      ),
+    );
+    if (changed != true || !mounted) return;
+
+    final updated = await AppDatabase.instance.getItemById(_item.id);
+    if (!mounted || updated == null) return;
+    setState(() {
+      _item = updated;
+    });
   }
 
   @override
@@ -158,6 +174,13 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
             subtitle:
                 Text('${_formatQuantity(_item.quantity)} ${_item.unit}'),
           ),
+          ListTile(
+            leading: const Icon(Icons.shopping_basket_outlined),
+            title: const Text('库存管理'),
+            subtitle: Text(_stockSummary(_item)),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _openStockSettings,
+          ),
           if (_item.barcode != null && _item.barcode!.isNotEmpty)
             ListTile(
               leading: const Icon(Icons.qr_code_2),
@@ -173,6 +196,25 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
         ],
       ),
     );
+  }
+
+  String _stockSummary(HomeItem item) {
+    final parts = <String>[];
+    parts.add(item.isConsumable ? '消耗品' : '未启用消耗品管理');
+    if (item.minimumQuantity != null) {
+      parts.add(
+        '最低 ${_formatQuantity(item.minimumQuantity!)} ${item.unit}',
+      );
+    }
+    if (item.expiryDate != null) {
+      final value = item.expiryDate!;
+      parts.add(
+        '到期 ${value.year}-'
+        '${value.month.toString().padLeft(2, '0')}-'
+        '${value.day.toString().padLeft(2, '0')}',
+      );
+    }
+    return parts.join(' · ');
   }
 
   String _formatQuantity(double value) {
