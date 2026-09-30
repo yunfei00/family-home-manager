@@ -32,6 +32,7 @@ class LocationNode {
       code: rawCode == null || rawCode.isEmpty ? locationCodeFromId(id) : rawCode,
       parentId: map['parent_id'] as int?,
       photoPath: map['photo_path'] as String?,
+      barcode: map['barcode'] as String?,
     );
   }
 }
@@ -48,6 +49,7 @@ class HomeItem {
     required this.unit,
     required this.notes,
     this.photoPath,
+    this.barcode,
   });
 
   final int id;
@@ -60,6 +62,7 @@ class HomeItem {
   final String unit;
   final String notes;
   final String? photoPath;
+  final String? barcode;
 
   factory HomeItem.fromMap(Map<String, Object?> map) {
     return HomeItem(
