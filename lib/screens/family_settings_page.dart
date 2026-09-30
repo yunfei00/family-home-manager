@@ -136,7 +136,8 @@ class _FamilySettingsPageState extends State<FamilySettingsPage> {
       familyId: _familyId.text,
       token: _token.text,
       revision: _profile.familyId.trim() == _familyId.text.trim() &&
-              _profile.serverUrl.trim() == _serverUrl.text.trim()
+              _profile.serverUrl.trim() == _serverUrl.text.trim() &&
+              _profile.token.trim() == _token.text.trim()
           ? _profile.revision
           : 0,
     );
