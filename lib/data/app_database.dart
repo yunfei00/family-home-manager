@@ -191,7 +191,7 @@ class AppDatabase {
         'name': cleanName,
         'parent_id': parentId,
         'type': type,
-        'path': parentPath + ' / ' + cleanName,
+        'path': '$parentPath / $cleanName',
         'code': null,
         'created_at': now,
       });
@@ -213,7 +213,7 @@ class AppDatabase {
         : '(i.name LIKE ? OR i.category LIKE ? OR i.notes LIKE ?)';
     final args = clean.isEmpty
         ? null
-        : List<Object?>.filled(3, '%' + clean + '%');
+        : List<Object?>.filled(3, '%$clean%');
 
     final rows = await db.rawQuery(
       '''
