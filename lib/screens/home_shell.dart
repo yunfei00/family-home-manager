@@ -474,85 +474,31 @@ class _LocationsPageState extends State<LocationsPage> {
 
   Future<void> _addLocation() async {
     final locations = await AppDatabase.instance.getLocations();
-    if (!mounted) return;
+    if (!mounted || locations.isEmpty) return;
 
-    final nameController = TextEditingController();
-    int parentId = locations.first.id;
-    String type = 'area';
-
-    final saved = await showDialog<bool>(
+    final draft = await showDialog<_LocationDraft>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('添加位置'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: '名称',
-                    hintText: '例如：客厅、白色高柜、第二层',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<int>(
-                  initialValue: parentId,
-                  decoration: const InputDecoration(labelText: '上级位置'),
-                  items: [
-                    for (final location in locations)
-                      DropdownMenuItem(
-                        value: location.id,
-                        child: Text(location.path, overflow: TextOverflow.ellipsis),
-                      ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) setDialogState(() => parentId = value);
-                  },
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: type,
-                  decoration: const InputDecoration(labelText: '类型'),
-                  items: const [
-                    DropdownMenuItem(value: 'room', child: Text('房间')),
-                    DropdownMenuItem(value: 'furniture', child: Text('家具')),
-                    DropdownMenuItem(value: 'shelf', child: Text('层 / 抽屉')),
-                    DropdownMenuItem(value: 'container', child: Text('收纳箱')),
-                    DropdownMenuItem(value: 'area', child: Text('其他区域')),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) setDialogState(() => type = value);
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                if (nameController.text.trim().isEmpty) return;
-                await AppDatabase.instance.addLocation(
-                  name: nameController.text,
-                  parentId: parentId,
-                  type: type,
-                );
-                if (context.mounted) Navigator.pop(context, true);
-              },
-              child: const Text('添加'),
-            ),
-          ],
-        ),
-      ),
+      builder: (_) => _AddLocationDialog(locations: locations),
     );
+    if (draft == null || !mounted) return;
 
-    nameController.dispose();
-    if (saved == true) _reload();
+    try {
+      await AppDatabase.instance.addLocation(
+        name: draft.name,
+        parentId: draft.parentId,
+        type: draft.type,
+      );
+      if (!mounted) return;
+      _reload();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已添加位置：${draft.name}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('添加位置失败：$error')),
+      );
+    }
   }
 
   @override
@@ -605,6 +551,127 @@ class _LocationsPageState extends State<LocationsPage> {
       'container' => Icons.inventory_2_outlined,
       _ => Icons.place_outlined,
     };
+  }
+}
+
+
+class _LocationDraft {
+  const _LocationDraft({
+    required this.name,
+    required this.parentId,
+    required this.type,
+  });
+
+  final String name;
+  final int parentId;
+  final String type;
+}
+
+class _AddLocationDialog extends StatefulWidget {
+  const _AddLocationDialog({required this.locations});
+
+  final List<LocationNode> locations;
+
+  @override
+  State<_AddLocationDialog> createState() => _AddLocationDialogState();
+}
+
+class _AddLocationDialogState extends State<_AddLocationDialog> {
+  final TextEditingController _nameController = TextEditingController();
+
+  late int _parentId;
+  String _type = 'area';
+
+  @override
+  void initState() {
+    super.initState();
+    _parentId = widget.locations.first.id;
+  }
+
+  void _submit() {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) return;
+
+    Navigator.of(context).pop(
+      _LocationDraft(
+        name: name,
+        parentId: _parentId,
+        type: _type,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('添加位置'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _nameController,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _submit(),
+              decoration: const InputDecoration(
+                labelText: '名称',
+                hintText: '例如：客厅、白色高柜、第二层',
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int>(
+              initialValue: _parentId,
+              decoration: const InputDecoration(labelText: '上级位置'),
+              items: [
+                for (final location in widget.locations)
+                  DropdownMenuItem(
+                    value: location.id,
+                    child: Text(
+                      location.path,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (value) {
+                if (value != null) setState(() => _parentId = value);
+              },
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _type,
+              decoration: const InputDecoration(labelText: '类型'),
+              items: const [
+                DropdownMenuItem(value: 'room', child: Text('房间')),
+                DropdownMenuItem(value: 'furniture', child: Text('家具')),
+                DropdownMenuItem(value: 'shelf', child: Text('层 / 抽屉')),
+                DropdownMenuItem(value: 'container', child: Text('收纳箱')),
+                DropdownMenuItem(value: 'area', child: Text('其他区域')),
+              ],
+              onChanged: (value) {
+                if (value != null) setState(() => _type = value);
+              },
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('添加'),
+        ),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
   }
 }
 
