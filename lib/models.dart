@@ -32,7 +32,6 @@ class LocationNode {
       code: rawCode == null || rawCode.isEmpty ? locationCodeFromId(id) : rawCode,
       parentId: map['parent_id'] as int?,
       photoPath: map['photo_path'] as String?,
-      barcode: map['barcode'] as String?,
     );
   }
 }
@@ -76,6 +75,7 @@ class HomeItem {
       unit: (map['unit'] as String?) ?? '个',
       notes: (map['notes'] as String?) ?? '',
       photoPath: map['photo_path'] as String?,
+      barcode: map['barcode'] as String?,
     );
   }
 }
