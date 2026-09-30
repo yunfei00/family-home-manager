@@ -76,3 +76,6 @@ jobs:
 
       - name: Test sync server
         run: pytest -q server/test_app.py
+
+      - name: Build sync server image
+        run: docker build -t family-home-manager-sync ./server
