@@ -1,0 +1,10 @@
+services:
+  family-sync:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./data:/data
+    environment:
+      FHM_SYNC_DB: /data/family_sync.db
