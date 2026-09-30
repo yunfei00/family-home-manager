@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../data/app_database.dart';
 import '../models.dart';
 import '../photo_store.dart';
+import 'family_settings_page.dart';
 import 'fast_entry_page.dart';
 import 'inventory_pro.dart';
 import 'item_detail_page.dart';
@@ -42,6 +43,17 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
+  Future<void> _openFamilySettings() async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const FamilySettingsPage()),
+    );
+    if (changed == true && mounted) {
+      setState(() {
+        _dataRevision++;
+      });
+    }
+  }
+
   Future<void> _scanLocation() async {
     final location = await Navigator.of(context).push<LocationNode>(
       MaterialPageRoute(builder: (_) => const QrScannerPage()),
@@ -68,6 +80,11 @@ class _HomeShellState extends State<HomeShell> {
       appBar: AppBar(
         title: const Text('家庭管理'),
         actions: [
+          IconButton(
+            tooltip: '家庭与备份',
+            onPressed: _openFamilySettings,
+            icon: const Icon(Icons.people_outline),
+          ),
           IconButton(
             tooltip: '快速录入',
             onPressed: _fastEntry,
