@@ -37,7 +37,7 @@ class _MoveItemPageState extends State<MoveItemPage> {
             children: [
               Text(widget.item.name, style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 6),
-              Text('当前位置：' + widget.item.locationPath),
+              Text('当前位置：${widget.item.locationPath}'),
               const SizedBox(height: 24),
               DropdownButtonFormField<int>(
                 initialValue: _destinationId,
