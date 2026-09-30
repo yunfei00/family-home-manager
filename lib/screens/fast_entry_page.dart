@@ -35,7 +35,11 @@ class _FastEntryPageState extends State<FastEntryPage> {
   int? _locationId;
   bool _saving = false;
   bool _listening = false;
+  bool _speechReady = false;
+  bool _initializingSpeech = false;
   String _voiceBase = '';
+  String _speechMessage = '点击“语音录入”后开始说话';
+  String? _speechLocaleId;
   String? _barcode;
 
   @override
@@ -52,47 +56,166 @@ class _FastEntryPageState extends State<FastEntryPage> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _toggleSpeech() async {
-    if (_listening) {
-      await _speech.stop();
+  Future<bool> _ensureSpeechReady() async {
+    if (_speechReady) return true;
+    if (_initializingSpeech) return false;
+
+    setState(() {
+      _initializingSpeech = true;
+      _speechMessage = '正在初始化语音识别…';
+    });
+
+    try {
+      final available = await _speech.initialize(
+        onStatus: (status) {
+          if (!mounted) return;
+          setState(() {
+            _listening = status == 'listening';
+            _speechMessage = switch (status) {
+              'listening' => '正在听，请说话…',
+              'notListening' => '语音识别已停止',
+              'done' => '语音识别完成',
+              _ => '语音状态：$status',
+            };
+          });
+        },
+        onError: (error) {
+          if (!mounted) return;
+          setState(() {
+            _listening = false;
+            _speechMessage = '语音识别错误：${error.errorMsg}';
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('语音识别错误：${error.errorMsg}')),
+          );
+        },
+      );
+
+      if (!mounted) return false;
+      if (!available) {
+        setState(() {
+          _speechMessage = '设备未提供可用的语音识别服务';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('设备未提供可用的语音识别服务，请检查系统语音服务和麦克风权限。'),
+          ),
+        );
+        return false;
+      }
+
+      final locales = await _speech.locales();
+      final systemLocale = await _speech.systemLocale();
+      String? preferredLocale;
+
+      for (final locale in locales) {
+        final normalized = locale.localeId.toLowerCase().replaceAll('-', '_');
+        if (normalized == 'zh_cn') {
+          preferredLocale = locale.localeId;
+          break;
+        }
+      }
+      preferredLocale ??= systemLocale?.localeId;
+
+      setState(() {
+        _speechReady = true;
+        _speechLocaleId = preferredLocale;
+        _speechMessage = preferredLocale == null
+            ? '语音识别已就绪'
+            : '语音识别已就绪（$preferredLocale）';
+      });
+      return true;
+    } catch (error) {
+      if (!mounted) return false;
+      setState(() {
+        _speechMessage = '语音初始化失败：$error';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('语音初始化失败：$error')),
+      );
+      return false;
+    } finally {
       if (mounted) {
         setState(() {
-          _listening = false;
+          _initializingSpeech = false;
         });
       }
+    }
+  }
+
+  Future<void> _toggleSpeech() async {
+    if (_listening || _speech.isListening) {
+      await _speech.stop();
+      if (!mounted) return;
+      setState(() {
+        _listening = false;
+        _speechMessage = '已停止语音录入';
+      });
       return;
     }
 
-    final available = await _speech.initialize();
-    if (!mounted) return;
-    if (!available) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('当前设备没有可用的语音识别服务。')),
-      );
-      return;
-    }
+    final ready = await _ensureSpeechReady();
+    if (!ready || !mounted) return;
 
     _voiceBase = _textController.text.trim();
     setState(() {
-      _listening = true;
+      _speechMessage = '正在启动麦克风…';
     });
 
-    await _speech.listen(
-      onResult: (result) {
-        if (!mounted) return;
-        final spoken = result.recognizedWords.trim();
-        final prefix = _voiceBase.isEmpty ? '' : '$_voiceBase，';
-        _textController.text = '$prefix$spoken';
-        _textController.selection = TextSelection.collapsed(
-          offset: _textController.text.length,
-        );
-        if (result.finalResult) {
+    try {
+      final started = await _speech.listen(
+        onResult: (result) {
+          if (!mounted) return;
+          final spoken = result.recognizedWords.trim();
+          if (spoken.isNotEmpty) {
+            final prefix = _voiceBase.isEmpty ? '' : '$_voiceBase，';
+            _textController.text = '$prefix$spoken';
+            _textController.selection = TextSelection.collapsed(
+              offset: _textController.text.length,
+            );
+          }
           setState(() {
-            _listening = false;
+            _listening = !result.finalResult;
+            _speechMessage = result.finalResult
+                ? (spoken.isEmpty ? '没有识别到内容，请再试一次' : '识别完成')
+                : '正在识别：$spoken';
           });
+        },
+        listenFor: const Duration(seconds: 30),
+        pauseFor: const Duration(seconds: 4),
+        localeId: _speechLocaleId,
+        listenOptions: SpeechListenOptions(
+          partialResults: true,
+          cancelOnError: false,
+          listenMode: ListenMode.dictation,
+          autoPunctuation: true,
+        ),
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _listening = started;
+        if (!started) {
+          _speechMessage = '麦克风没有启动，请检查麦克风权限或系统语音服务';
         }
-      },
-    );
+      });
+      if (!started) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('语音录入没有启动，请检查麦克风权限和系统语音识别服务。'),
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _listening = false;
+        _speechMessage = '启动语音失败：$error';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('启动语音失败：$error')),
+      );
+    }
   }
 
   Future<void> _scanBarcode() async {
@@ -257,11 +380,16 @@ class _FastEntryPageState extends State<FastEntryPage> {
                 children: [
                   Expanded(
                     child: FilledButton.tonalIcon(
-                      onPressed: _saving ? null : _toggleSpeech,
+                      onPressed:
+                          _saving || _initializingSpeech ? null : _toggleSpeech,
                       icon: Icon(
                         _listening ? Icons.mic : Icons.mic_none_outlined,
                       ),
-                      label: Text(_listening ? '停止语音' : '语音录入'),
+                      label: Text(
+                        _initializingSpeech
+                            ? '初始化中…'
+                            : (_listening ? '停止语音' : '语音录入'),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -273,6 +401,18 @@ class _FastEntryPageState extends State<FastEntryPage> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 8),
+              Card(
+                child: ListTile(
+                  leading: Icon(
+                    _listening ? Icons.graphic_eq : Icons.mic_none_outlined,
+                  ),
+                  title: Text(_speechMessage),
+                  subtitle: const Text(
+                    '首次使用请允许麦克风权限；部分手机还需要启用系统“语音识别”服务。',
+                  ),
+                ),
               ),
               if (_barcode != null) ...[
                 const SizedBox(height: 10),
