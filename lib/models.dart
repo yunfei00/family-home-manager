@@ -79,3 +79,103 @@ class HomeItem {
     );
   }
 }
+
+
+class InventorySessionSummary {
+  const InventorySessionSummary({
+    required this.id,
+    required this.locationId,
+    required this.locationPath,
+    required this.completedAt,
+    required this.totalCount,
+    required this.presentCount,
+    required this.missingCount,
+    required this.misplacedCount,
+    required this.unexpectedCount,
+  });
+
+  final int id;
+  final int locationId;
+  final String locationPath;
+  final DateTime completedAt;
+  final int totalCount;
+  final int presentCount;
+  final int missingCount;
+  final int misplacedCount;
+  final int unexpectedCount;
+
+  factory InventorySessionSummary.fromMap(Map<String, Object?> map) {
+    return InventorySessionSummary(
+      id: map['id'] as int,
+      locationId: map['location_id'] as int,
+      locationPath: (map['location_path'] as String?) ?? '',
+      completedAt: DateTime.parse(map['completed_at'] as String),
+      totalCount: (map['total_count'] as num).toInt(),
+      presentCount: (map['present_count'] as num).toInt(),
+      missingCount: (map['missing_count'] as num).toInt(),
+      misplacedCount: (map['misplaced_count'] as num?)?.toInt() ?? 0,
+      unexpectedCount: (map['unexpected_count'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class InventoryReportLine {
+  const InventoryReportLine({
+    required this.itemId,
+    required this.itemName,
+    required this.status,
+    this.actualLocationPath,
+  });
+
+  final int itemId;
+  final String itemName;
+  final String status;
+  final String? actualLocationPath;
+
+  factory InventoryReportLine.fromMap(Map<String, Object?> map) {
+    return InventoryReportLine(
+      itemId: map['item_id'] as int,
+      itemName: map['item_name'] as String,
+      status: (map['status'] as String?) ??
+          ((map['present'] as int? ?? 0) == 1 ? 'present' : 'missing'),
+      actualLocationPath: map['actual_location_path'] as String?,
+    );
+  }
+}
+
+class UnexpectedInventoryItem {
+  const UnexpectedInventoryItem({
+    required this.name,
+    required this.quantity,
+    required this.unit,
+    required this.category,
+  });
+
+  final String name;
+  final double quantity;
+  final String unit;
+  final String category;
+}
+
+class InventoryUnexpectedRecord {
+  const InventoryUnexpectedRecord({
+    required this.name,
+    required this.quantity,
+    required this.unit,
+    required this.category,
+  });
+
+  final String name;
+  final double quantity;
+  final String unit;
+  final String category;
+
+  factory InventoryUnexpectedRecord.fromMap(Map<String, Object?> map) {
+    return InventoryUnexpectedRecord(
+      name: map['name'] as String,
+      quantity: (map['quantity'] as num).toDouble(),
+      unit: map['unit'] as String,
+      category: (map['category'] as String?) ?? '',
+    );
+  }
+}
