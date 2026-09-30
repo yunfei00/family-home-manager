@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../data/app_database.dart';
 import '../models.dart';
+import 'location_detail_page.dart';
+import 'move_item_page.dart';
+import 'qr_scanner_page.dart';
 
 String _formatQuantity(double value) {
   if (value == value.roundToDouble()) return value.toInt().toString();
@@ -18,6 +21,18 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
+  Future<void> _scanLocation() async {
+    final location = await Navigator.of(context).push<LocationNode>(
+      MaterialPageRoute(builder: (_) => const QrScannerPage()),
+    );
+    if (location == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => LocationDetailPage(location: location),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = [
@@ -30,11 +45,22 @@ class _HomeShellState extends State<HomeShell> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('家庭管理'),
+        actions: [
+          IconButton(
+            tooltip: '扫描位置二维码',
+            onPressed: _scanLocation,
+            icon: const Icon(Icons.qr_code_scanner),
+          ),
+        ],
       ),
       body: IndexedStack(index: _index, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
+        onDestinationSelected: (value) {
+          setState(() {
+            _index = value;
+          });
+        },
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), label: '首页'),
           NavigationDestination(icon: Icon(Icons.inventory_2_outlined), label: '物品'),
@@ -66,7 +92,9 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget build(BuildContext context) {
     return RefreshIndicator(
       onRefresh: () async {
-        setState(() => _summary = AppDatabase.instance.getSummary());
+        setState(() {
+          _summary = AppDatabase.instance.getSummary();
+        });
         await _summary;
       },
       child: ListView(
@@ -162,6 +190,13 @@ class _ItemsPageState extends State<ItemsPage> {
     if (created == true) _reload();
   }
 
+  Future<void> _moveItem(HomeItem item) async {
+    final moved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => MoveItemPage(item: item)),
+    );
+    if (moved == true) _reload();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -215,7 +250,28 @@ class _ItemsPageState extends State<ItemsPage> {
                         '${item.locationPath}\n${item.category.isEmpty ? item.kind : item.category}',
                       ),
                       isThreeLine: true,
-                      trailing: Text('${_formatQuantity(item.quantity)} ${item.unit}'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('${_formatQuantity(item.quantity)} ${item.unit}'),
+                          PopupMenuButton<String>(
+                            tooltip: '物品操作',
+                            onSelected: (value) {
+                              if (value == 'move') _moveItem(item);
+                            },
+                            itemBuilder: (context) => const [
+                              PopupMenuItem(
+                                value: 'move',
+                                child: ListTile(
+                                  leading: Icon(Icons.drive_file_move_outlined),
+                                  title: Text('移动'),
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     );
                   },
                 );
@@ -301,7 +357,11 @@ class _AddItemPageState extends State<AddItemPage> {
                     DropdownMenuItem(value: 'quantity', child: Text('数量物品')),
                     DropdownMenuItem(value: 'group', child: Text('箱 / 集合')),
                   ],
-                  onChanged: (value) => setState(() => _kind = value ?? 'single'),
+                  onChanged: (value) {
+                    setState(() {
+                      _kind = value ?? 'single';
+                    });
+                  },
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
@@ -317,7 +377,11 @@ class _AddItemPageState extends State<AddItemPage> {
                         child: Text(location.path, overflow: TextOverflow.ellipsis),
                       ),
                   ],
-                  onChanged: (value) => setState(() => _locationId = value),
+                  onChanged: (value) {
+                    setState(() {
+                      _locationId = value;
+                    });
+                  },
                   validator: (value) => value == null ? '请选择存放位置' : null,
                 ),
                 const SizedBox(height: 12),
@@ -374,7 +438,9 @@ class _AddItemPageState extends State<AddItemPage> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+    });
     try {
       await AppDatabase.instance.addItem(
         name: _name.text,
@@ -387,7 +453,11 @@ class _AddItemPageState extends State<AddItemPage> {
       );
       if (mounted) Navigator.of(context).pop(true);
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
     }
   }
 
@@ -419,90 +489,38 @@ class _LocationsPageState extends State<LocationsPage> {
   }
 
   void _reload() {
-    setState(() => _locations = AppDatabase.instance.getLocations());
+    setState(() {
+      _locations = AppDatabase.instance.getLocations();
+    });
   }
 
   Future<void> _addLocation() async {
     final locations = await AppDatabase.instance.getLocations();
-    if (!mounted) return;
+    if (!mounted || locations.isEmpty) return;
 
-    final nameController = TextEditingController();
-    int parentId = locations.first.id;
-    String type = 'area';
-
-    final saved = await showDialog<bool>(
+    final draft = await showDialog<_LocationDraft>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('添加位置'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: '名称',
-                    hintText: '例如：客厅、白色高柜、第二层',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<int>(
-                  initialValue: parentId,
-                  decoration: const InputDecoration(labelText: '上级位置'),
-                  items: [
-                    for (final location in locations)
-                      DropdownMenuItem(
-                        value: location.id,
-                        child: Text(location.path, overflow: TextOverflow.ellipsis),
-                      ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) setDialogState(() => parentId = value);
-                  },
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: type,
-                  decoration: const InputDecoration(labelText: '类型'),
-                  items: const [
-                    DropdownMenuItem(value: 'room', child: Text('房间')),
-                    DropdownMenuItem(value: 'furniture', child: Text('家具')),
-                    DropdownMenuItem(value: 'shelf', child: Text('层 / 抽屉')),
-                    DropdownMenuItem(value: 'container', child: Text('收纳箱')),
-                    DropdownMenuItem(value: 'area', child: Text('其他区域')),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) setDialogState(() => type = value);
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                if (nameController.text.trim().isEmpty) return;
-                await AppDatabase.instance.addLocation(
-                  name: nameController.text,
-                  parentId: parentId,
-                  type: type,
-                );
-                if (context.mounted) Navigator.pop(context, true);
-              },
-              child: const Text('添加'),
-            ),
-          ],
-        ),
-      ),
+      builder: (_) => _AddLocationDialog(locations: locations),
     );
+    if (draft == null || !mounted) return;
 
-    nameController.dispose();
-    if (saved == true) _reload();
+    try {
+      await AppDatabase.instance.addLocation(
+        name: draft.name,
+        parentId: draft.parentId,
+        type: draft.type,
+      );
+      if (!mounted) return;
+      _reload();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已添加位置：${draft.name}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('添加位置失败：$error')),
+      );
+    }
   }
 
   @override
@@ -525,6 +543,14 @@ class _LocationsPageState extends State<LocationsPage> {
                 leading: Icon(_locationIcon(location.type)),
                 title: Text(location.name),
                 subtitle: Text(location.path),
+                trailing: const Icon(Icons.qr_code_2),
+                onTap: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => LocationDetailPage(location: location),
+                    ),
+                  );
+                },
               );
             },
           );
@@ -550,6 +576,135 @@ class _LocationsPageState extends State<LocationsPage> {
   }
 }
 
+
+class _LocationDraft {
+  const _LocationDraft({
+    required this.name,
+    required this.parentId,
+    required this.type,
+  });
+
+  final String name;
+  final int parentId;
+  final String type;
+}
+
+class _AddLocationDialog extends StatefulWidget {
+  const _AddLocationDialog({required this.locations});
+
+  final List<LocationNode> locations;
+
+  @override
+  State<_AddLocationDialog> createState() => _AddLocationDialogState();
+}
+
+class _AddLocationDialogState extends State<_AddLocationDialog> {
+  final TextEditingController _nameController = TextEditingController();
+
+  late int _parentId;
+  String _type = 'area';
+
+  @override
+  void initState() {
+    super.initState();
+    _parentId = widget.locations.first.id;
+  }
+
+  void _submit() {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) return;
+
+    Navigator.of(context).pop(
+      _LocationDraft(
+        name: name,
+        parentId: _parentId,
+        type: _type,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('添加位置'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _nameController,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _submit(),
+              decoration: const InputDecoration(
+                labelText: '名称',
+                hintText: '例如：客厅、白色高柜、第二层',
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int>(
+              initialValue: _parentId,
+              decoration: const InputDecoration(labelText: '上级位置'),
+              items: [
+                for (final location in widget.locations)
+                  DropdownMenuItem(
+                    value: location.id,
+                    child: Text(
+                      location.path,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() {
+                    _parentId = value;
+                  });
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _type,
+              decoration: const InputDecoration(labelText: '类型'),
+              items: const [
+                DropdownMenuItem(value: 'room', child: Text('房间')),
+                DropdownMenuItem(value: 'furniture', child: Text('家具')),
+                DropdownMenuItem(value: 'shelf', child: Text('层 / 抽屉')),
+                DropdownMenuItem(value: 'container', child: Text('收纳箱')),
+                DropdownMenuItem(value: 'area', child: Text('其他区域')),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() {
+                    _type = value;
+                  });
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('添加'),
+        ),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+}
+
 class InventoryPage extends StatefulWidget {
   const InventoryPage({super.key});
 
@@ -570,6 +725,25 @@ class _InventoryPageState extends State<InventoryPage> {
     final locations = await AppDatabase.instance.getLocations();
     final counts = await AppDatabase.instance.getItemCountsByLocation();
     return _InventoryOverview(locations, counts);
+  }
+
+  Future<void> _scanInventory() async {
+    final location = await Navigator.of(context).push<LocationNode>(
+      MaterialPageRoute(
+        builder: (_) => const QrScannerPage(title: '扫描要盘库的位置'),
+      ),
+    );
+    if (location == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => InventoryDetailPage(location: location),
+      ),
+    );
+    if (mounted) {
+      setState(() {
+        _overview = _load();
+      });
+    }
   }
 
   @override
@@ -594,10 +768,19 @@ class _InventoryPageState extends State<InventoryPage> {
         }
 
         return ListView.separated(
-          itemCount: usable.length,
+          itemCount: usable.length + 1,
           separatorBuilder: (_, __) => const Divider(height: 1),
           itemBuilder: (context, index) {
-            final location = usable[index];
+            if (index == 0) {
+              return ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.qr_code_scanner)),
+                title: const Text('扫描二维码开始盘库'),
+                subtitle: const Text('直接扫描柜子、抽屉或收纳箱上的位置二维码'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _scanInventory,
+              );
+            }
+            final location = usable[index - 1];
             final count = overview.counts[location.id] ?? 0;
             return ListTile(
               leading: const CircleAvatar(child: Icon(Icons.fact_check_outlined)),
@@ -610,7 +793,11 @@ class _InventoryPageState extends State<InventoryPage> {
                     builder: (_) => InventoryDetailPage(location: location),
                   ),
                 );
-                if (mounted) setState(() => _overview = _load());
+                if (mounted) {
+                  setState(() {
+                    _overview = _load();
+                  });
+                }
               },
             );
           },
@@ -675,7 +862,9 @@ class _InventoryDetailPageState extends State<InventoryDetailPage> {
                     return CheckboxListTile(
                       value: _checks[item.id] ?? true,
                       onChanged: (value) {
-                        setState(() => _checks[item.id] = value ?? false);
+                        setState(() {
+                          _checks[item.id] = value ?? false;
+                        });
                       },
                       title: Text(item.name),
                       subtitle: Text('${_formatQuantity(item.quantity)} ${item.unit}'),

@@ -1,9 +1,12 @@
+import 'qr.dart';
+
 class LocationNode {
   const LocationNode({
     required this.id,
     required this.name,
     required this.path,
     required this.type,
+    required this.code,
     this.parentId,
   });
 
@@ -11,14 +14,20 @@ class LocationNode {
   final String name;
   final String path;
   final String type;
+  final String code;
   final int? parentId;
 
+  String get qrPayload => buildLocationQrPayload(code);
+
   factory LocationNode.fromMap(Map<String, Object?> map) {
+    final id = map['id'] as int;
+    final rawCode = map['code'] as String?;
     return LocationNode(
-      id: map['id'] as int,
+      id: id,
       name: map['name'] as String,
       path: map['path'] as String,
       type: map['type'] as String,
+      code: rawCode == null || rawCode.isEmpty ? locationCodeFromId(id) : rawCode,
       parentId: map['parent_id'] as int?,
     );
   }
