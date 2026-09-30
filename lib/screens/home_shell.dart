@@ -1,7 +1,12 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../data/app_database.dart';
 import '../models.dart';
+import '../photo_store.dart';
+import 'item_detail_page.dart';
 import 'location_detail_page.dart';
 import 'move_item_page.dart';
 import 'qr_scanner_page.dart';
@@ -241,15 +246,35 @@ class _ItemsPageState extends State<ItemsPage> {
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final item = items[index];
+                    final hasPhoto =
+                        PhotoStore.instance.exists(item.photoPath);
                     return ListTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.inventory_2_outlined),
-                      ),
+                      leading: hasPhoto
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.file(
+                                File(item.photoPath!),
+                                width: 48,
+                                height: 48,
+                                fit: BoxFit.cover,
+                              ),
+                            )
+                          : const CircleAvatar(
+                              child: Icon(Icons.inventory_2_outlined),
+                            ),
                       title: Text(item.name),
                       subtitle: Text(
                         '${item.locationPath}\n${item.category.isEmpty ? item.kind : item.category}',
                       ),
                       isThreeLine: true,
+                      onTap: () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => ItemDetailPage(item: item),
+                          ),
+                        );
+                        if (mounted) _reload();
+                      },
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -313,6 +338,39 @@ class _AddItemPageState extends State<AddItemPage> {
   String _kind = 'single';
   int? _locationId;
   bool _saving = false;
+  bool _pickingPhoto = false;
+  String? _photoPath;
+
+  Future<void> _pickPhoto(ImageSource source) async {
+    if (_pickingPhoto) return;
+    setState(() {
+      _pickingPhoto = true;
+    });
+    try {
+      final path = await PhotoStore.instance.pickAndSave(
+        source,
+        replacePath: _photoPath,
+      );
+      if (path == null || !mounted) return;
+      setState(() {
+        _photoPath = path;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _pickingPhoto = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _removePhoto() async {
+    final oldPath = _photoPath;
+    setState(() {
+      _photoPath = null;
+    });
+    await PhotoStore.instance.deletePhoto(oldPath);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -336,6 +394,48 @@ class _AddItemPageState extends State<AddItemPage> {
                   validator: (value) =>
                       value == null || value.trim().isEmpty ? '请输入物品名称' : null,
                 ),
+                const SizedBox(height: 12),
+                if (_photoPath != null &&
+                    PhotoStore.instance.exists(_photoPath))
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.file(
+                      File(_photoPath!),
+                      height: 180,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _pickingPhoto
+                            ? null
+                            : () => _pickPhoto(ImageSource.camera),
+                        icon: const Icon(Icons.photo_camera_outlined),
+                        label: const Text('拍照'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _pickingPhoto
+                            ? null
+                            : () => _pickPhoto(ImageSource.gallery),
+                        icon: const Icon(Icons.photo_library_outlined),
+                        label: const Text('相册'),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_photoPath != null)
+                  TextButton.icon(
+                    onPressed: _pickingPhoto ? null : _removePhoto,
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('删除照片'),
+                  ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _category,
@@ -450,6 +550,7 @@ class _AddItemPageState extends State<AddItemPage> {
         quantity: double.parse(_quantity.text),
         unit: _unit.text,
         notes: _notes.text,
+        photoPath: _photoPath,
       );
       if (mounted) Navigator.of(context).pop(true);
     } finally {
@@ -539,8 +640,20 @@ class _LocationsPageState extends State<LocationsPage> {
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, index) {
               final location = locations[index];
+              final hasPhoto =
+                  PhotoStore.instance.exists(location.photoPath);
               return ListTile(
-                leading: Icon(_locationIcon(location.type)),
+                leading: hasPhoto
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(
+                          File(location.photoPath!),
+                          width: 44,
+                          height: 44,
+                          fit: BoxFit.cover,
+                        ),
+                      )
+                    : Icon(_locationIcon(location.type)),
                 title: Text(location.name),
                 subtitle: Text(location.path),
                 trailing: const Icon(Icons.qr_code_2),
@@ -550,6 +663,7 @@ class _LocationsPageState extends State<LocationsPage> {
                       builder: (_) => LocationDetailPage(location: location),
                     ),
                   );
+                  if (mounted) _reload();
                 },
               );
             },
