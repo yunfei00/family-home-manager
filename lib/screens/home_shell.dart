@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../data/app_database.dart';
 import '../models.dart';
 import '../photo_store.dart';
+import 'fast_entry_page.dart';
 import 'item_detail_page.dart';
 import 'location_detail_page.dart';
 import 'move_item_page.dart';
@@ -25,6 +26,19 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
+  int _dataRevision = 0;
+
+  Future<void> _fastEntry() async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const FastEntryPage()),
+    );
+    if (changed == true && mounted) {
+      setState(() {
+        _dataRevision++;
+        _index = 1;
+      });
+    }
+  }
 
   Future<void> _scanLocation() async {
     final location = await Navigator.of(context).push<LocationNode>(
@@ -41,8 +55,8 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      const DashboardPage(),
-      const ItemsPage(),
+      DashboardPage(key: ValueKey('dashboard-$_dataRevision')),
+      ItemsPage(key: ValueKey('items-$_dataRevision')),
       const LocationsPage(),
       const InventoryPage(),
     ];
@@ -51,6 +65,11 @@ class _HomeShellState extends State<HomeShell> {
       appBar: AppBar(
         title: const Text('家庭管理'),
         actions: [
+          IconButton(
+            tooltip: '快速录入',
+            onPressed: _fastEntry,
+            icon: const Icon(Icons.bolt_outlined),
+          ),
           IconButton(
             tooltip: '扫描位置二维码',
             onPressed: _scanLocation,
