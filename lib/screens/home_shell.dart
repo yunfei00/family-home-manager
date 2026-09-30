@@ -56,7 +56,11 @@ class _HomeShellState extends State<HomeShell> {
       body: IndexedStack(index: _index, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (value) => setState(() => _index = value),
+        onDestinationSelected: (value) {
+          setState(() {
+            _index = value;
+          });
+        },
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), label: '首页'),
           NavigationDestination(icon: Icon(Icons.inventory_2_outlined), label: '物品'),
@@ -88,7 +92,9 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget build(BuildContext context) {
     return RefreshIndicator(
       onRefresh: () async {
-        setState(() => _summary = AppDatabase.instance.getSummary());
+        setState(() {
+          _summary = AppDatabase.instance.getSummary();
+        });
         await _summary;
       },
       child: ListView(
@@ -351,7 +357,11 @@ class _AddItemPageState extends State<AddItemPage> {
                     DropdownMenuItem(value: 'quantity', child: Text('数量物品')),
                     DropdownMenuItem(value: 'group', child: Text('箱 / 集合')),
                   ],
-                  onChanged: (value) => setState(() => _kind = value ?? 'single'),
+                  onChanged: (value) {
+                    setState(() {
+                      _kind = value ?? 'single';
+                    });
+                  },
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
@@ -367,7 +377,11 @@ class _AddItemPageState extends State<AddItemPage> {
                         child: Text(location.path, overflow: TextOverflow.ellipsis),
                       ),
                   ],
-                  onChanged: (value) => setState(() => _locationId = value),
+                  onChanged: (value) {
+                    setState(() {
+                      _locationId = value;
+                    });
+                  },
                   validator: (value) => value == null ? '请选择存放位置' : null,
                 ),
                 const SizedBox(height: 12),
@@ -424,7 +438,9 @@ class _AddItemPageState extends State<AddItemPage> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+    });
     try {
       await AppDatabase.instance.addItem(
         name: _name.text,
@@ -437,7 +453,11 @@ class _AddItemPageState extends State<AddItemPage> {
       );
       if (mounted) Navigator.of(context).pop(true);
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
     }
   }
 
@@ -469,7 +489,9 @@ class _LocationsPageState extends State<LocationsPage> {
   }
 
   void _reload() {
-    setState(() => _locations = AppDatabase.instance.getLocations());
+    setState(() {
+      _locations = AppDatabase.instance.getLocations();
+    });
   }
 
   Future<void> _addLocation() async {
@@ -634,7 +656,11 @@ class _AddLocationDialogState extends State<_AddLocationDialog> {
                   ),
               ],
               onChanged: (value) {
-                if (value != null) setState(() => _parentId = value);
+                if (value != null) {
+                  setState(() {
+                    _parentId = value;
+                  });
+                }
               },
             ),
             const SizedBox(height: 12),
@@ -649,7 +675,11 @@ class _AddLocationDialogState extends State<_AddLocationDialog> {
                 DropdownMenuItem(value: 'area', child: Text('其他区域')),
               ],
               onChanged: (value) {
-                if (value != null) setState(() => _type = value);
+                if (value != null) {
+                  setState(() {
+                    _type = value;
+                  });
+                }
               },
             ),
           ],
@@ -709,7 +739,11 @@ class _InventoryPageState extends State<InventoryPage> {
         builder: (_) => InventoryDetailPage(location: location),
       ),
     );
-    if (mounted) setState(() => _overview = _load());
+    if (mounted) {
+      setState(() {
+        _overview = _load();
+      });
+    }
   }
 
   @override
@@ -759,7 +793,11 @@ class _InventoryPageState extends State<InventoryPage> {
                     builder: (_) => InventoryDetailPage(location: location),
                   ),
                 );
-                if (mounted) setState(() => _overview = _load());
+                if (mounted) {
+                  setState(() {
+                    _overview = _load();
+                  });
+                }
               },
             );
           },
@@ -824,7 +862,9 @@ class _InventoryDetailPageState extends State<InventoryDetailPage> {
                     return CheckboxListTile(
                       value: _checks[item.id] ?? true,
                       onChanged: (value) {
-                        setState(() => _checks[item.id] = value ?? false);
+                        setState(() {
+                          _checks[item.id] = value ?? false;
+                        });
                       },
                       title: Text(item.name),
                       subtitle: Text('${_formatQuantity(item.quantity)} ${item.unit}'),
