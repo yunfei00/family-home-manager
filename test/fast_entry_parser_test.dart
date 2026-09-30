@@ -34,6 +34,8 @@ void main() {
 
     expect(items.length, 2);
     expect(items[0].unit, '把');
-    expect(items[1].name, '电池4节');
+    expect(items[1].name, '电池');
+    expect(items[1].quantity, 4);
+    expect(items[1].unit, '节');
   });
 }
