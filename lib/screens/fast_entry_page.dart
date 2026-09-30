@@ -1,0 +1,549 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:speech_to_text/speech_to_text.dart';
+
+import '../data/app_database.dart';
+import '../fast_entry_parser.dart';
+import '../models.dart';
+import 'product_barcode_scanner_page.dart';
+
+class FastEntryPage extends StatefulWidget {
+  const FastEntryPage({super.key});
+
+  @override
+  State<FastEntryPage> createState() => _FastEntryPageState();
+}
+
+class _FastEntryPageState extends State<FastEntryPage> {
+  static const MethodChannel _speechChannel =
+      MethodChannel('family_home_manager/speech');
+
+  static const _categories = <String>[
+    '日用品',
+    '医药',
+    '清洁',
+    '玩具',
+    '工具',
+    '食品',
+    '衣物',
+    '证件',
+    '电子',
+    '其他',
+  ];
+
+  final _textController = TextEditingController();
+  final _categoryController = TextEditingController(text: '日用品');
+  final SpeechToText _speech = SpeechToText();
+
+  late Future<List<LocationNode>> _locationsFuture;
+  int? _locationId;
+  bool _saving = false;
+  bool _listening = false;
+  bool _speechReady = false;
+  bool _initializingSpeech = false;
+  String _voiceBase = '';
+  String _speechMessage = '点击“语音录入”后开始说话';
+  String? _speechLocaleId;
+  String? _barcode;
+
+  @override
+  void initState() {
+    super.initState();
+    _locationsFuture = AppDatabase.instance.getLocations();
+    _textController.addListener(_refreshPreview);
+  }
+
+  List<FastEntryDraft> get _drafts =>
+      parseFastEntries(_textController.text);
+
+  void _refreshPreview() {
+    if (mounted) setState(() {});
+  }
+
+  Future<bool> _ensureSpeechReady() async {
+    if (_speechReady) return true;
+    if (_initializingSpeech) return false;
+
+    setState(() {
+      _initializingSpeech = true;
+      _speechMessage = '正在初始化语音识别…';
+    });
+
+    try {
+      final available = await _speech.initialize(
+        debugLogging: true,
+        onStatus: (status) {
+          if (!mounted) return;
+          setState(() {
+            _listening = status == 'listening';
+            _speechMessage = switch (status) {
+              'listening' => '正在听，请说话…',
+              'notListening' => '语音识别已停止',
+              'done' => '语音识别完成',
+              _ => '语音状态：$status',
+            };
+          });
+        },
+        onError: (error) {
+          if (!mounted) return;
+          setState(() {
+            _listening = false;
+            _speechMessage = '语音识别错误：${error.errorMsg}';
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('语音识别错误：${error.errorMsg}')),
+          );
+        },
+      ).timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => false,
+      );
+
+      if (!mounted) return false;
+      if (!available) {
+        setState(() {
+          _speechMessage = '系统语音服务初始化超时或不可用，正在尝试兼容模式…';
+        });
+        return false;
+      }
+
+      final locales = await _speech.locales();
+      final systemLocale = await _speech.systemLocale();
+      String? preferredLocale;
+
+      for (final locale in locales) {
+        final normalized = locale.localeId.toLowerCase().replaceAll('-', '_');
+        if (normalized == 'zh_cn') {
+          preferredLocale = locale.localeId;
+          break;
+        }
+      }
+      preferredLocale ??= systemLocale?.localeId;
+
+      setState(() {
+        _speechReady = true;
+        _speechLocaleId = preferredLocale;
+        _speechMessage = preferredLocale == null
+            ? '语音识别已就绪'
+            : '语音识别已就绪（$preferredLocale）';
+      });
+      return true;
+    } catch (error) {
+      if (!mounted) return false;
+      setState(() {
+        _speechMessage = '语音初始化失败：$error';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('语音初始化失败：$error')),
+      );
+      return false;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _initializingSpeech = false;
+        });
+      }
+    }
+  }
+
+  Future<bool> _fallbackNativeSpeech() async {
+    if (!mounted) return false;
+    setState(() {
+      _speechMessage = '正在打开系统语音输入…';
+    });
+
+    try {
+      final text = await _speechChannel
+          .invokeMethod<String>('recognizeOnce', <String, Object?>{
+        'locale': 'zh-CN',
+        'prompt': '请说出要录入的家庭物品',
+      }).timeout(
+        const Duration(seconds: 45),
+        onTimeout: () => null,
+      );
+
+      if (!mounted) return false;
+      final spoken = text?.trim() ?? '';
+      if (spoken.isEmpty) {
+        setState(() {
+          _speechMessage = '系统语音输入没有返回内容';
+        });
+        return false;
+      }
+
+      final prefix =
+          _textController.text.trim().isEmpty ? '' : '${_textController.text.trim()}，';
+      _textController.text = '$prefix$spoken';
+      _textController.selection = TextSelection.collapsed(
+        offset: _textController.text.length,
+      );
+      setState(() {
+        _speechMessage = '兼容模式识别完成';
+      });
+      return true;
+    } on PlatformException catch (error) {
+      if (!mounted) return false;
+      final message = error.code == 'not_available'
+          ? '本机没有可调用的系统语音识别程序'
+          : '系统语音输入失败：${error.message ?? error.code}';
+      setState(() {
+        _speechMessage = message;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+      return false;
+    } catch (error) {
+      if (!mounted) return false;
+      setState(() {
+        _speechMessage = '系统语音输入失败：$error';
+      });
+      return false;
+    }
+  }
+
+  Future<void> _toggleSpeech() async {
+    if (_listening || _speech.isListening) {
+      await _speech.stop();
+      if (!mounted) return;
+      setState(() {
+        _listening = false;
+        _speechMessage = '已停止语音录入';
+      });
+      return;
+    }
+
+    final ready = await _ensureSpeechReady();
+    if (!mounted) return;
+    if (!ready) {
+      await _fallbackNativeSpeech();
+      return;
+    }
+
+    _voiceBase = _textController.text.trim();
+    setState(() {
+      _speechMessage = '正在启动麦克风…';
+    });
+
+    try {
+      final started = await _speech.listen(
+        onResult: (result) {
+          if (!mounted) return;
+          final spoken = result.recognizedWords.trim();
+          if (spoken.isNotEmpty) {
+            final prefix = _voiceBase.isEmpty ? '' : '$_voiceBase，';
+            _textController.text = '$prefix$spoken';
+            _textController.selection = TextSelection.collapsed(
+              offset: _textController.text.length,
+            );
+          }
+          setState(() {
+            _listening = !result.finalResult;
+            _speechMessage = result.finalResult
+                ? (spoken.isEmpty ? '没有识别到内容，请再试一次' : '识别完成')
+                : '正在识别：$spoken';
+          });
+        },
+        listenOptions: SpeechListenOptions(
+          listenFor: const Duration(seconds: 30),
+          pauseFor: const Duration(seconds: 4),
+          localeId: _speechLocaleId,
+          partialResults: true,
+          cancelOnError: false,
+          listenMode: ListenMode.dictation,
+          autoPunctuation: true,
+        ),
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _listening = started;
+        if (!started) {
+          _speechMessage = '麦克风没有启动，请检查麦克风权限或系统语音服务';
+        }
+      });
+      if (!started) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('语音录入没有启动，请检查麦克风权限和系统语音识别服务。'),
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _listening = false;
+        _speechMessage = '启动语音失败：$error';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('启动语音失败：$error')),
+      );
+    }
+  }
+
+  Future<void> _scanBarcode() async {
+    final barcode = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => const ProductBarcodeScannerPage(),
+      ),
+    );
+    if (barcode == null || !mounted) return;
+    setState(() {
+      _barcode = barcode;
+    });
+  }
+
+  Future<void> _save() async {
+    final drafts = _drafts;
+    if (_locationId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先选择存放位置。')),
+      );
+      return;
+    }
+    if (drafts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先输入要记录的物品。')),
+      );
+      return;
+    }
+    if (_barcode != null && drafts.length != 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('商品条码一次只能绑定一个物品。')),
+      );
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+    });
+
+    try {
+      if (_barcode != null) {
+        final draft = drafts.single;
+        await AppDatabase.instance.addItem(
+          name: draft.name,
+          category: _categoryController.text,
+          kind: draft.quantity == 1 ? 'single' : 'quantity',
+          locationId: _locationId!,
+          quantity: draft.quantity,
+          unit: draft.unit,
+          notes: '',
+          barcode: _barcode,
+        );
+      } else {
+        await AppDatabase.instance.addItemsBatch(
+          items: [
+            for (final draft in drafts)
+              (
+                name: draft.name,
+                quantity: draft.quantity,
+                unit: draft.unit,
+              ),
+          ],
+          category: _categoryController.text,
+          locationId: _locationId!,
+        );
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已快速录入 ${drafts.length} 种物品')),
+      );
+      Navigator.of(context).pop(true);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final drafts = _drafts;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('快速录入')),
+      body: FutureBuilder<List<LocationNode>>(
+        future: _locationsFuture,
+        builder: (context, snapshot) {
+          final locations = snapshot.data ?? const <LocationNode>[];
+
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              DropdownButtonFormField<int>(
+                initialValue: _locationId,
+                decoration: const InputDecoration(
+                  labelText: '统一存放位置',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  for (final location in locations)
+                    DropdownMenuItem(
+                      value: location.id,
+                      child: Text(
+                        location.path,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+                onChanged: (value) {
+                  setState(() {
+                    _locationId = value;
+                  });
+                },
+              ),
+              const SizedBox(height: 16),
+              Text(
+                '常用分类',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  for (final category in _categories)
+                    ChoiceChip(
+                      label: Text(category),
+                      selected: _categoryController.text == category,
+                      onSelected: (_) {
+                        setState(() {
+                          _categoryController.text = category;
+                        });
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _categoryController,
+                decoration: const InputDecoration(
+                  labelText: '分类名称',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 18),
+              TextField(
+                controller: _textController,
+                minLines: 4,
+                maxLines: 8,
+                decoration: const InputDecoration(
+                  labelText: '批量物品',
+                  hintText: '例如：牙膏3支，口罩2盒，体温计1个\n也可以每行写一个',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed:
+                          _saving || _initializingSpeech ? null : _toggleSpeech,
+                      icon: Icon(
+                        _listening ? Icons.mic : Icons.mic_none_outlined,
+                      ),
+                      label: Text(
+                        _initializingSpeech
+                            ? '初始化中…'
+                            : (_listening ? '停止语音' : '语音录入'),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _saving ? null : _scanBarcode,
+                      icon: const Icon(Icons.qr_code_scanner),
+                      label: const Text('扫商品条码'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Card(
+                child: ListTile(
+                  leading: Icon(
+                    _listening ? Icons.graphic_eq : Icons.mic_none_outlined,
+                  ),
+                  title: Text(_speechMessage),
+                  subtitle: const Text(
+                    '首次使用请允许麦克风权限；部分手机还需要启用系统“语音识别”服务。',
+                  ),
+                ),
+              ),
+              if (_barcode != null) ...[
+                const SizedBox(height: 10),
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.qr_code_2),
+                    title: const Text('已绑定商品条码'),
+                    subtitle: Text(_barcode!),
+                    trailing: IconButton(
+                      tooltip: '移除条码',
+                      onPressed: () {
+                        setState(() {
+                          _barcode = null;
+                        });
+                      },
+                      icon: const Icon(Icons.close),
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 20),
+              Text(
+                '识别预览（${drafts.length} 种）',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              if (drafts.isEmpty)
+                const Card(
+                  child: ListTile(
+                    leading: Icon(Icons.info_outline),
+                    title: Text('输入后会在这里预览'),
+                  ),
+                )
+              else
+                for (final draft in drafts)
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.inventory_2_outlined),
+                      title: Text(draft.name),
+                      trailing: Text(
+                        '${_formatQuantity(draft.quantity)} ${draft.unit}',
+                      ),
+                    ),
+                  ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: _saving ? null : _save,
+                icon: const Icon(Icons.done_all),
+                label: Text(_saving ? '保存中…' : '确认批量录入'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  String _formatQuantity(double value) {
+    if (value == value.roundToDouble()) return value.toInt().toString();
+    return value.toString();
+  }
+
+  @override
+  void dispose() {
+    _speech.stop();
+    _textController.removeListener(_refreshPreview);
+    _textController.dispose();
+    _categoryController.dispose();
+    super.dispose();
+  }
+}

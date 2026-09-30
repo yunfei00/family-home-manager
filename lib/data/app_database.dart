@@ -17,7 +17,7 @@ class AppDatabase {
     final dbPath = await getDatabasesPath();
     final db = await openDatabase(
       p.join(dbPath, 'family_home_manager.db'),
-      version: 3,
+      version: 4,
       onCreate: _createSchema,
       onUpgrade: _upgradeSchema,
     );
@@ -51,6 +51,7 @@ class AppDatabase {
         unit TEXT NOT NULL DEFAULT '个',
         notes TEXT NOT NULL DEFAULT '',
         photo_path TEXT,
+        barcode TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY(location_id) REFERENCES locations(id)
@@ -124,6 +125,12 @@ class AppDatabase {
     if (oldVersion < 3) {
       await database.execute('ALTER TABLE locations ADD COLUMN photo_path TEXT');
       await database.execute('ALTER TABLE items ADD COLUMN photo_path TEXT');
+    }
+    if (oldVersion < 4) {
+      await database.execute('ALTER TABLE items ADD COLUMN barcode TEXT');
+      await database.execute(
+        'CREATE INDEX IF NOT EXISTS idx_items_barcode ON items(barcode)',
+      );
     }
   }
 
@@ -216,10 +223,10 @@ class AppDatabase {
     final clean = query.trim();
     final where = clean.isEmpty
         ? null
-        : '(i.name LIKE ? OR i.category LIKE ? OR i.notes LIKE ?)';
+        : '(i.name LIKE ? OR i.category LIKE ? OR i.notes LIKE ? OR i.barcode LIKE ?)';
     final args = clean.isEmpty
         ? null
-        : List<Object?>.filled(3, '%$clean%');
+        : List<Object?>.filled(4, '%$clean%');
 
     final rows = await db.rawQuery(
       '''
@@ -258,6 +265,7 @@ class AppDatabase {
     required String unit,
     required String notes,
     String? photoPath,
+    String? barcode,
   }) async {
     final db = await database;
     final now = DateTime.now().toIso8601String();
@@ -270,8 +278,47 @@ class AppDatabase {
       'unit': unit.trim().isEmpty ? '个' : unit.trim(),
       'notes': notes.trim(),
       'photo_path': photoPath,
+      'barcode': barcode?.trim().isEmpty == true ? null : barcode?.trim(),
       'created_at': now,
       'updated_at': now,
+    });
+  }
+
+  Future<List<int>> addItemsBatch({
+    required List<({
+      String name,
+      double quantity,
+      String unit,
+    })> items,
+    required String category,
+    required int locationId,
+    String kind = 'quantity',
+  }) async {
+    if (items.isEmpty) return const <int>[];
+
+    final db = await database;
+    return db.transaction((txn) async {
+      final now = DateTime.now().toIso8601String();
+      final ids = <int>[];
+
+      for (final item in items) {
+        final id = await txn.insert('items', {
+          'name': item.name.trim(),
+          'category': category.trim(),
+          'kind': kind,
+          'location_id': locationId,
+          'quantity': item.quantity,
+          'unit': item.unit.trim().isEmpty ? '个' : item.unit.trim(),
+          'notes': '',
+          'photo_path': null,
+          'barcode': null,
+          'created_at': now,
+          'updated_at': now,
+        });
+        ids.add(id);
+      }
+
+      return ids;
     });
   }
 

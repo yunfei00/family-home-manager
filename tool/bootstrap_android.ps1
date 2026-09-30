@@ -2,6 +2,8 @@ $ErrorActionPreference = "Stop"
 
 flutter --version
 flutter create --platforms=android --project-name family_home_manager --org com.yunfei.family .
+dart run tool/patch_android_permissions.dart
+dart run tool/patch_android_speech_bridge.dart
 flutter pub get
 
 Write-Host ""

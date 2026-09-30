@@ -48,6 +48,7 @@ class HomeItem {
     required this.unit,
     required this.notes,
     this.photoPath,
+    this.barcode,
   });
 
   final int id;
@@ -60,6 +61,7 @@ class HomeItem {
   final String unit;
   final String notes;
   final String? photoPath;
+  final String? barcode;
 
   factory HomeItem.fromMap(Map<String, Object?> map) {
     return HomeItem(
@@ -73,6 +75,7 @@ class HomeItem {
       unit: (map['unit'] as String?) ?? '个',
       notes: (map['notes'] as String?) ?? '',
       photoPath: map['photo_path'] as String?,
+      barcode: map['barcode'] as String?,
     );
   }
 }
