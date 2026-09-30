@@ -31,6 +31,9 @@ jobs:
       - name: Generate Android platform
         run: flutter create --platforms=android --project-name family_home_manager --org com.yunfei.family .
 
+      - name: Patch Android permissions
+        run: dart run tool/patch_android_permissions.dart
+
       - name: Install dependencies
         run: flutter pub get
 
