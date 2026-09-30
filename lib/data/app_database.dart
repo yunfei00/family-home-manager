@@ -17,7 +17,7 @@ class AppDatabase {
     final dbPath = await getDatabasesPath();
     final db = await openDatabase(
       p.join(dbPath, 'family_home_manager.db'),
-      version: 4,
+      version: 5,
       onCreate: _createSchema,
       onUpgrade: _upgradeSchema,
     );
@@ -66,7 +66,9 @@ class AppDatabase {
         completed_at TEXT NOT NULL,
         total_count INTEGER NOT NULL,
         present_count INTEGER NOT NULL,
-        missing_count INTEGER NOT NULL
+        missing_count INTEGER NOT NULL,
+        misplaced_count INTEGER NOT NULL DEFAULT 0,
+        unexpected_count INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -76,8 +78,25 @@ class AppDatabase {
         session_id INTEGER NOT NULL,
         item_id INTEGER NOT NULL,
         present INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'present',
+        actual_location_id INTEGER,
         FOREIGN KEY(session_id) REFERENCES inventory_sessions(id),
-        FOREIGN KEY(item_id) REFERENCES items(id)
+        FOREIGN KEY(item_id) REFERENCES items(id),
+        FOREIGN KEY(actual_location_id) REFERENCES locations(id)
+      )
+    ''');
+
+    await database.execute('''
+      CREATE TABLE inventory_unexpected_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        quantity REAL NOT NULL DEFAULT 1,
+        unit TEXT NOT NULL DEFAULT '个',
+        category TEXT NOT NULL DEFAULT '',
+        created_item_id INTEGER,
+        FOREIGN KEY(session_id) REFERENCES inventory_sessions(id),
+        FOREIGN KEY(created_item_id) REFERENCES items(id)
       )
     ''');
 
@@ -131,6 +150,36 @@ class AppDatabase {
       await database.execute(
         'CREATE INDEX IF NOT EXISTS idx_items_barcode ON items(barcode)',
       );
+    }
+    if (oldVersion < 5) {
+      await database.execute(
+        'ALTER TABLE inventory_sessions ADD COLUMN misplaced_count INTEGER NOT NULL DEFAULT 0',
+      );
+      await database.execute(
+        'ALTER TABLE inventory_sessions ADD COLUMN unexpected_count INTEGER NOT NULL DEFAULT 0',
+      );
+      await database.execute(
+        "ALTER TABLE inventory_checks ADD COLUMN status TEXT NOT NULL DEFAULT 'present'",
+      );
+      await database.execute(
+        'ALTER TABLE inventory_checks ADD COLUMN actual_location_id INTEGER',
+      );
+      await database.execute(
+        "UPDATE inventory_checks SET status = CASE WHEN present = 1 THEN 'present' ELSE 'missing' END",
+      );
+      await database.execute('''
+        CREATE TABLE IF NOT EXISTS inventory_unexpected_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          quantity REAL NOT NULL DEFAULT 1,
+          unit TEXT NOT NULL DEFAULT '个',
+          category TEXT NOT NULL DEFAULT '',
+          created_item_id INTEGER,
+          FOREIGN KEY(session_id) REFERENCES inventory_sessions(id),
+          FOREIGN KEY(created_item_id) REFERENCES items(id)
+        )
+      ''');
     }
   }
 
@@ -440,6 +489,166 @@ class AppDatabase {
 
       return sessionId;
     });
+  }
+
+  Future<int> createInventoryProSession({
+    required int locationId,
+    required Map<int, String> statuses,
+    required Map<int, int?> actualLocations,
+    required List<UnexpectedInventoryItem> unexpectedItems,
+  }) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      final now = DateTime.now().toIso8601String();
+      final present =
+          statuses.values.where((value) => value == 'present').length;
+      final missing =
+          statuses.values.where((value) => value == 'missing').length;
+      final misplaced =
+          statuses.values.where((value) => value == 'misplaced').length;
+
+      final sessionId = await txn.insert('inventory_sessions', {
+        'location_id': locationId,
+        'started_at': now,
+        'completed_at': now,
+        'total_count': statuses.length,
+        'present_count': present,
+        'missing_count': missing,
+        'misplaced_count': misplaced,
+        'unexpected_count': unexpectedItems.length,
+      });
+
+      for (final entry in statuses.entries) {
+        final status = entry.value;
+        final actualLocationId = actualLocations[entry.key];
+
+        await txn.insert('inventory_checks', {
+          'session_id': sessionId,
+          'item_id': entry.key,
+          'present': status == 'present' ? 1 : 0,
+          'status': status,
+          'actual_location_id': actualLocationId,
+        });
+
+        if (status == 'misplaced' &&
+            actualLocationId != null &&
+            actualLocationId != locationId) {
+          final itemRows = await txn.query(
+            'items',
+            columns: ['location_id'],
+            where: 'id = ?',
+            whereArgs: [entry.key],
+            limit: 1,
+          );
+          if (itemRows.isNotEmpty) {
+            final fromLocationId = itemRows.first['location_id'] as int;
+            if (fromLocationId != actualLocationId) {
+              await txn.update(
+                'items',
+                {
+                  'location_id': actualLocationId,
+                  'updated_at': now,
+                },
+                where: 'id = ?',
+                whereArgs: [entry.key],
+              );
+              await txn.insert('item_movements', {
+                'item_id': entry.key,
+                'from_location_id': fromLocationId,
+                'to_location_id': actualLocationId,
+                'moved_at': now,
+              });
+            }
+          }
+        }
+      }
+
+      for (final unexpected in unexpectedItems) {
+        final createdItemId = await txn.insert('items', {
+          'name': unexpected.name.trim(),
+          'category': unexpected.category.trim(),
+          'kind': unexpected.quantity == 1 ? 'single' : 'quantity',
+          'location_id': locationId,
+          'quantity': unexpected.quantity,
+          'unit': unexpected.unit.trim().isEmpty ? '个' : unexpected.unit.trim(),
+          'notes': '盘库时发现并新增',
+          'photo_path': null,
+          'barcode': null,
+          'created_at': now,
+          'updated_at': now,
+        });
+
+        await txn.insert('inventory_unexpected_items', {
+          'session_id': sessionId,
+          'name': unexpected.name.trim(),
+          'quantity': unexpected.quantity,
+          'unit': unexpected.unit.trim().isEmpty ? '个' : unexpected.unit.trim(),
+          'category': unexpected.category.trim(),
+          'created_item_id': createdItemId,
+        });
+      }
+
+      return sessionId;
+    });
+  }
+
+  Future<List<InventorySessionSummary>> getRecentInventorySessions({
+    int limit = 30,
+  }) async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      '''
+      SELECT s.*, l.path AS location_path
+      FROM inventory_sessions s
+      JOIN locations l ON l.id = s.location_id
+      ORDER BY s.completed_at DESC
+      LIMIT ?
+      ''',
+      [limit],
+    );
+    return rows.map(InventorySessionSummary.fromMap).toList();
+  }
+
+  Future<List<InventoryReportLine>> getInventoryReportLines(
+    int sessionId,
+  ) async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      '''
+      SELECT
+        c.item_id,
+        i.name AS item_name,
+        c.present,
+        c.status,
+        actual.path AS actual_location_path
+      FROM inventory_checks c
+      JOIN items i ON i.id = c.item_id
+      LEFT JOIN locations actual ON actual.id = c.actual_location_id
+      WHERE c.session_id = ?
+      ORDER BY
+        CASE c.status
+          WHEN 'missing' THEN 0
+          WHEN 'misplaced' THEN 1
+          ELSE 2
+        END,
+        i.name COLLATE NOCASE ASC
+      ''',
+      [sessionId],
+    );
+    return rows.map(InventoryReportLine.fromMap).toList();
+  }
+
+  Future<List<InventoryUnexpectedRecord>> getInventoryUnexpectedItems(
+    int sessionId,
+  ) async {
+    final db = await database;
+    final rows = await db.query(
+      'inventory_unexpected_items',
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
+      orderBy: 'name COLLATE NOCASE ASC',
+    );
+    return rows.map(InventoryUnexpectedRecord.fromMap).toList();
   }
 
   Future<Map<String, int>> getSummary() async {
