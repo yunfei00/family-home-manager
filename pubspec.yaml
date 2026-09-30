@@ -1,7 +1,7 @@
 name: family_home_manager
 description: 家庭物品管理与盘库 App
 publish_to: "none"
-version: 0.2.0+2
+version: 0.3.0+3
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -14,6 +14,8 @@ dependencies:
   path: ^1.9.1
   qr_flutter: ^4.1.0
   mobile_scanner: ^7.0.1
+  image_picker: ^1.1.2
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:
