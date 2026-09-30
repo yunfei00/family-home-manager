@@ -1,0 +1,176 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+
+import '../data/app_database.dart';
+import '../models.dart';
+import '../photo_store.dart';
+
+class ItemDetailPage extends StatefulWidget {
+  const ItemDetailPage({
+    super.key,
+    required this.item,
+  });
+
+  final HomeItem item;
+
+  @override
+  State<ItemDetailPage> createState() => _ItemDetailPageState();
+}
+
+class _ItemDetailPageState extends State<ItemDetailPage> {
+  late HomeItem _item;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _item = widget.item;
+  }
+
+  Future<void> _pickPhoto(ImageSource source) async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+    });
+    try {
+      final path = await PhotoStore.instance.pickAndSave(
+        source,
+        replacePath: _item.photoPath,
+      );
+      if (path == null) return;
+
+      await AppDatabase.instance.updateItemPhoto(_item.id, path);
+      final updated = await AppDatabase.instance.getItemById(_item.id);
+      if (!mounted || updated == null) return;
+
+      setState(() {
+        _item = updated;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _removePhoto() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+    });
+    try {
+      final oldPath = _item.photoPath;
+      await AppDatabase.instance.updateItemPhoto(_item.id, null);
+      await PhotoStore.instance.deletePhoto(oldPath);
+
+      final updated = await AppDatabase.instance.getItemById(_item.id);
+      if (!mounted || updated == null) return;
+      setState(() {
+        _item = updated;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPhoto = PhotoStore.instance.exists(_item.photoPath);
+
+    return Scaffold(
+      appBar: AppBar(title: Text(_item.name)),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: hasPhoto
+                ? Image.file(
+                    File(_item.photoPath!),
+                    height: 260,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  )
+                : const SizedBox(
+                    height: 180,
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.photo_camera_outlined, size: 48),
+                          SizedBox(height: 8),
+                          Text('还没有物品照片'),
+                        ],
+                      ),
+                    ),
+                  ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed:
+                      _busy ? null : () => _pickPhoto(ImageSource.camera),
+                  icon: const Icon(Icons.photo_camera_outlined),
+                  label: const Text('拍照'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed:
+                      _busy ? null : () => _pickPhoto(ImageSource.gallery),
+                  icon: const Icon(Icons.photo_library_outlined),
+                  label: const Text('相册'),
+                ),
+              ),
+            ],
+          ),
+          if (hasPhoto)
+            TextButton.icon(
+              onPressed: _busy ? null : _removePhoto,
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('删除照片'),
+            ),
+          const SizedBox(height: 20),
+          ListTile(
+            leading: const Icon(Icons.place_outlined),
+            title: const Text('存放位置'),
+            subtitle: Text(_item.locationPath),
+          ),
+          ListTile(
+            leading: const Icon(Icons.category_outlined),
+            title: const Text('分类'),
+            subtitle: Text(_item.category.isEmpty ? '未分类' : _item.category),
+          ),
+          ListTile(
+            leading: const Icon(Icons.numbers_outlined),
+            title: const Text('数量'),
+            subtitle:
+                Text('${_formatQuantity(_item.quantity)} ${_item.unit}'),
+          ),
+          if (_item.notes.isNotEmpty)
+            ListTile(
+              leading: const Icon(Icons.notes_outlined),
+              title: const Text('备注'),
+              subtitle: Text(_item.notes),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _formatQuantity(double value) {
+    if (value == value.roundToDouble()) return value.toInt().toString();
+    return value.toString();
+  }
+}
