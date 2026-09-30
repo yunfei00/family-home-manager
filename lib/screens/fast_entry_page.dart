@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import '../data/app_database.dart';
@@ -14,6 +15,9 @@ class FastEntryPage extends StatefulWidget {
 }
 
 class _FastEntryPageState extends State<FastEntryPage> {
+  static const MethodChannel _speechChannel =
+      MethodChannel('family_home_manager/speech');
+
   static const _categories = <String>[
     '日用品',
     '医药',
@@ -67,6 +71,7 @@ class _FastEntryPageState extends State<FastEntryPage> {
 
     try {
       final available = await _speech.initialize(
+        debugLogging: true,
         onStatus: (status) {
           if (!mounted) return;
           setState(() {
@@ -89,18 +94,16 @@ class _FastEntryPageState extends State<FastEntryPage> {
             SnackBar(content: Text('语音识别错误：${error.errorMsg}')),
           );
         },
+      ).timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => false,
       );
 
       if (!mounted) return false;
       if (!available) {
         setState(() {
-          _speechMessage = '设备未提供可用的语音识别服务';
+          _speechMessage = '系统语音服务初始化超时或不可用，正在尝试兼容模式…';
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('设备未提供可用的语音识别服务，请检查系统语音服务和麦克风权限。'),
-          ),
-        );
         return false;
       }
 
@@ -143,6 +146,62 @@ class _FastEntryPageState extends State<FastEntryPage> {
     }
   }
 
+  Future<bool> _fallbackNativeSpeech() async {
+    if (!mounted) return false;
+    setState(() {
+      _speechMessage = '正在打开系统语音输入…';
+    });
+
+    try {
+      final text = await _speechChannel
+          .invokeMethod<String>('recognizeOnce', <String, Object?>{
+        'locale': 'zh-CN',
+        'prompt': '请说出要录入的家庭物品',
+      }).timeout(
+        const Duration(seconds: 45),
+        onTimeout: () => null,
+      );
+
+      if (!mounted) return false;
+      final spoken = text?.trim() ?? '';
+      if (spoken.isEmpty) {
+        setState(() {
+          _speechMessage = '系统语音输入没有返回内容';
+        });
+        return false;
+      }
+
+      final prefix =
+          _textController.text.trim().isEmpty ? '' : '${_textController.text.trim()}，';
+      _textController.text = '$prefix$spoken';
+      _textController.selection = TextSelection.collapsed(
+        offset: _textController.text.length,
+      );
+      setState(() {
+        _speechMessage = '兼容模式识别完成';
+      });
+      return true;
+    } on PlatformException catch (error) {
+      if (!mounted) return false;
+      final message = error.code == 'not_available'
+          ? '本机没有可调用的系统语音识别程序'
+          : '系统语音输入失败：${error.message ?? error.code}';
+      setState(() {
+        _speechMessage = message;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+      return false;
+    } catch (error) {
+      if (!mounted) return false;
+      setState(() {
+        _speechMessage = '系统语音输入失败：$error';
+      });
+      return false;
+    }
+  }
+
   Future<void> _toggleSpeech() async {
     if (_listening || _speech.isListening) {
       await _speech.stop();
@@ -155,7 +214,11 @@ class _FastEntryPageState extends State<FastEntryPage> {
     }
 
     final ready = await _ensureSpeechReady();
-    if (!ready || !mounted) return;
+    if (!mounted) return;
+    if (!ready) {
+      await _fallbackNativeSpeech();
+      return;
+    }
 
     _voiceBase = _textController.text.trim();
     setState(() {
