@@ -181,10 +181,10 @@ class _FastEntryPageState extends State<FastEntryPage> {
                 : '正在识别：$spoken';
           });
         },
-        listenFor: const Duration(seconds: 30),
-        pauseFor: const Duration(seconds: 4),
-        localeId: _speechLocaleId,
         listenOptions: SpeechListenOptions(
+          listenFor: const Duration(seconds: 30),
+          pauseFor: const Duration(seconds: 4),
+          localeId: _speechLocaleId,
           partialResults: true,
           cancelOnError: false,
           listenMode: ListenMode.dictation,
