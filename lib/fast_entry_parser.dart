@@ -26,7 +26,7 @@ FastEntryDraft? _parseChunk(String chunk) {
   final pattern = RegExp(
     r'^(.*?)(?:\s*[xX×]?\s*)'
     r'(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十]+)'
-    r'\s*(个|件|支|盒|包|瓶|袋|套|箱|卷|本|把|台|双|条|张|只|桶|罐)?$',
+    r'\s*(个|件|支|盒|包|瓶|袋|套|箱|卷|本|把|台|双|条|张|只|桶|罐|节|片|枚|块)?$',
   );
   final match = pattern.firstMatch(chunk);
 
