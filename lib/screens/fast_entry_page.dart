@@ -268,7 +268,7 @@ class _FastEntryPageState extends State<FastEntryPage> {
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: _saving ? null : _scanBarcode,
-                      icon: const Icon(Icons.barcode_reader),
+                      icon: const Icon(Icons.qr_code_scanner),
                       label: const Text('扫商品条码'),
                     ),
                   ),
