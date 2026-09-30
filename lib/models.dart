@@ -49,6 +49,9 @@ class HomeItem {
     required this.notes,
     this.photoPath,
     this.barcode,
+    this.isConsumable = false,
+    this.minimumQuantity,
+    this.expiryDate,
   });
 
   final int id;
@@ -62,6 +65,9 @@ class HomeItem {
   final String notes;
   final String? photoPath;
   final String? barcode;
+  final bool isConsumable;
+  final double? minimumQuantity;
+  final DateTime? expiryDate;
 
   factory HomeItem.fromMap(Map<String, Object?> map) {
     return HomeItem(
@@ -76,6 +82,11 @@ class HomeItem {
       notes: (map['notes'] as String?) ?? '',
       photoPath: map['photo_path'] as String?,
       barcode: map['barcode'] as String?,
+      isConsumable: (map['is_consumable'] as int? ?? 0) == 1,
+      minimumQuantity: (map['minimum_quantity'] as num?)?.toDouble(),
+      expiryDate: map['expiry_date'] == null
+          ? null
+          : DateTime.tryParse(map['expiry_date'] as String),
     );
   }
 }
@@ -176,6 +187,39 @@ class InventoryUnexpectedRecord {
       quantity: (map['quantity'] as num).toDouble(),
       unit: map['unit'] as String,
       category: (map['category'] as String?) ?? '',
+    );
+  }
+}
+
+
+class ShoppingListEntry {
+  const ShoppingListEntry({
+    required this.id,
+    required this.name,
+    required this.quantity,
+    required this.unit,
+    required this.checked,
+    required this.createdAt,
+    this.itemId,
+  });
+
+  final int id;
+  final int? itemId;
+  final String name;
+  final double quantity;
+  final String unit;
+  final bool checked;
+  final DateTime createdAt;
+
+  factory ShoppingListEntry.fromMap(Map<String, Object?> map) {
+    return ShoppingListEntry(
+      id: map['id'] as int,
+      itemId: map['item_id'] as int?,
+      name: map['name'] as String,
+      quantity: (map['quantity'] as num).toDouble(),
+      unit: map['unit'] as String,
+      checked: (map['checked'] as int? ?? 0) == 1,
+      createdAt: DateTime.parse(map['created_at'] as String),
     );
   }
 }
