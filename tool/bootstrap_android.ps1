@@ -1,0 +1,9 @@
+$ErrorActionPreference = "Stop"
+
+flutter --version
+flutter create --platforms=android --project-name family_home_manager --org com.yunfei.family .
+flutter pub get
+
+Write-Host ""
+Write-Host "Android platform files are ready."
+Write-Host "Run: flutter run"
