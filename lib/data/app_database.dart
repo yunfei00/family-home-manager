@@ -17,7 +17,7 @@ class AppDatabase {
     final dbPath = await getDatabasesPath();
     final db = await openDatabase(
       p.join(dbPath, 'family_home_manager.db'),
-      version: 2,
+      version: 3,
       onCreate: _createSchema,
       onUpgrade: _upgradeSchema,
     );
@@ -35,6 +35,7 @@ class AppDatabase {
         type TEXT NOT NULL,
         path TEXT NOT NULL UNIQUE,
         code TEXT UNIQUE,
+        photo_path TEXT,
         created_at TEXT NOT NULL
       )
     ''');
@@ -49,6 +50,7 @@ class AppDatabase {
         quantity REAL NOT NULL DEFAULT 1,
         unit TEXT NOT NULL DEFAULT '个',
         notes TEXT NOT NULL DEFAULT '',
+        photo_path TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY(location_id) REFERENCES locations(id)
@@ -118,6 +120,10 @@ class AppDatabase {
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_locations_code ON locations(code)',
       );
       await _createMovementTable(database);
+    }
+    if (oldVersion < 3) {
+      await database.execute('ALTER TABLE locations ADD COLUMN photo_path TEXT');
+      await database.execute('ALTER TABLE items ADD COLUMN photo_path TEXT');
     }
   }
 
@@ -251,6 +257,7 @@ class AppDatabase {
     required double quantity,
     required String unit,
     required String notes,
+    String? photoPath,
   }) async {
     final db = await database;
     final now = DateTime.now().toIso8601String();
@@ -262,9 +269,49 @@ class AppDatabase {
       'quantity': quantity,
       'unit': unit.trim().isEmpty ? '个' : unit.trim(),
       'notes': notes.trim(),
+      'photo_path': photoPath,
       'created_at': now,
       'updated_at': now,
     });
+  }
+
+  Future<HomeItem?> getItemById(int id) async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      '''
+      SELECT i.*, l.path AS location_path
+      FROM items i
+      JOIN locations l ON l.id = i.location_id
+      WHERE i.id = ?
+      LIMIT 1
+      ''',
+      [id],
+    );
+    if (rows.isEmpty) return null;
+    return HomeItem.fromMap(rows.first);
+  }
+
+  Future<void> updateItemPhoto(int itemId, String? photoPath) async {
+    final db = await database;
+    await db.update(
+      'items',
+      {
+        'photo_path': photoPath,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [itemId],
+    );
+  }
+
+  Future<void> updateLocationPhoto(int locationId, String? photoPath) async {
+    final db = await database;
+    await db.update(
+      'locations',
+      {'photo_path': photoPath},
+      where: 'id = ?',
+      whereArgs: [locationId],
+    );
   }
 
   Future<void> moveItem({

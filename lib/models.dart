@@ -8,6 +8,7 @@ class LocationNode {
     required this.type,
     required this.code,
     this.parentId,
+    this.photoPath,
   });
 
   final int id;
@@ -16,6 +17,7 @@ class LocationNode {
   final String type;
   final String code;
   final int? parentId;
+  final String? photoPath;
 
   String get qrPayload => buildLocationQrPayload(code);
 
@@ -29,6 +31,7 @@ class LocationNode {
       type: map['type'] as String,
       code: rawCode == null || rawCode.isEmpty ? locationCodeFromId(id) : rawCode,
       parentId: map['parent_id'] as int?,
+      photoPath: map['photo_path'] as String?,
     );
   }
 }
@@ -44,6 +47,7 @@ class HomeItem {
     required this.quantity,
     required this.unit,
     required this.notes,
+    this.photoPath,
   });
 
   final int id;
@@ -55,6 +59,7 @@ class HomeItem {
   final double quantity;
   final String unit;
   final String notes;
+  final String? photoPath;
 
   factory HomeItem.fromMap(Map<String, Object?> map) {
     return HomeItem(
@@ -67,6 +72,7 @@ class HomeItem {
       quantity: (map['quantity'] as num?)?.toDouble() ?? 1,
       unit: (map['unit'] as String?) ?? '个',
       notes: (map['notes'] as String?) ?? '',
+      photoPath: map['photo_path'] as String?,
     );
   }
 }
