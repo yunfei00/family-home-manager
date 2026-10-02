@@ -5,6 +5,7 @@ import '../backup_service.dart';
 import '../data/app_database.dart';
 import '../family_sync_service.dart';
 import '../models.dart';
+import '../sync_state.dart';
 
 class FamilySettingsPage extends StatefulWidget {
   const FamilySettingsPage({super.key});
@@ -30,6 +31,8 @@ class _FamilySettingsPageState extends State<FamilySettingsPage> {
   bool _busy = false;
   bool _tokenVisible = false;
   bool _dataChanged = false;
+  bool _autoSyncEnabled = true;
+  SyncLocalState? _localSyncState;
   String _syncStatus = '尚未配置家庭服务器';
 
   @override
@@ -41,9 +44,12 @@ class _FamilySettingsPageState extends State<FamilySettingsPage> {
 
   Future<void> _loadProfile() async {
     final profile = await FamilySyncService.instance.loadProfile();
+    final localState = await SyncStateStore.instance.load();
     if (!mounted) return;
     setState(() {
       _profile = profile;
+      _localSyncState = localState;
+      _autoSyncEnabled = localState.autoSyncEnabled;
       _serverUrl.text = profile.serverUrl;
       _familyId.text = profile.familyId;
       _token.text = profile.token;
@@ -252,6 +258,41 @@ class _FamilySettingsPageState extends State<FamilySettingsPage> {
     });
   }
 
+  Future<void> _setAutoSync(bool enabled) async {
+    await SyncStateStore.instance.setAutoSyncEnabled(enabled);
+    final state = await SyncStateStore.instance.load();
+    if (!mounted) return;
+    setState(() {
+      _autoSyncEnabled = enabled;
+      _localSyncState = state;
+      _syncStatus = enabled ? '自动同步已开启' : '自动同步已关闭';
+    });
+  }
+
+  Future<void> _syncNow() async {
+    await _saveProfile();
+    if (!_profile.isConfigured) {
+      _showMessage('请先配置服务器地址、家庭 ID 和密钥');
+      return;
+    }
+
+    await _runBusy(() async {
+      final result = await FamilySyncService.instance.autoSync(force: true);
+      final state = await SyncStateStore.instance.load();
+      if (!mounted) return;
+      setState(() {
+        _profile = result.profile;
+        _localSyncState = state;
+        _syncStatus = result.message;
+        if (result.localDataChanged) {
+          _dataChanged = true;
+          _reloadMembers();
+        }
+      });
+      _showMessage(result.message);
+    });
+  }
+
   Future<void> _copyConnection() async {
     if (!_profile.isConfigured) {
       _showMessage('请先保存完整的服务器连接信息');
@@ -457,18 +498,37 @@ class _FamilySettingsPageState extends State<FamilySettingsPage> {
             ),
             const SizedBox(height: 12),
             Card(
-              child: ListTile(
-                leading: const Icon(Icons.sync),
-                title: Text(_syncStatus),
-                subtitle: const Text(
-                  '多设备采用整库快照 + revision 冲突保护，不会静默覆盖更新。',
-                ),
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.sync),
+                    title: Text(_syncStatus),
+                    subtitle: Text(
+                      _syncStateDescription(),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  SwitchListTile(
+                    secondary: const Icon(Icons.autorenew),
+                    title: const Text('自动同步'),
+                    subtitle: const Text(
+                      'App 打开或回到前台时自动检查；有本机修改就上传，有服务器更新就下载。',
+                    ),
+                    value: _autoSyncEnabled,
+                    onChanged: _busy ? null : _setAutoSync,
+                  ),
+                ],
               ),
             ),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
+                FilledButton.tonalIcon(
+                  onPressed: _busy ? null : _syncNow,
+                  icon: const Icon(Icons.sync),
+                  label: const Text('立即同步'),
+                ),
                 OutlinedButton.icon(
                   onPressed: _busy ? null : _testConnection,
                   icon: const Icon(Icons.wifi_tethering),
@@ -525,6 +585,28 @@ class _FamilySettingsPageState extends State<FamilySettingsPage> {
         ),
       ),
     );
+  }
+
+  String _syncStateDescription() {
+    final state = _localSyncState;
+    if (state == null) {
+      return '多设备采用 revision 冲突保护，不会静默覆盖更新。';
+    }
+
+    final parts = <String>[
+      state.dirty ? '本机有待同步修改' : '本机无待同步修改',
+    ];
+    final last = state.lastSuccessAt;
+    if (last != null) {
+      final local = last.toLocal();
+      parts.add(
+        '上次成功：${local.month.toString().padLeft(2, '0')}-'
+        '${local.day.toString().padLeft(2, '0')} '
+        '${local.hour.toString().padLeft(2, '0')}:'
+        '${local.minute.toString().padLeft(2, '0')}',
+      );
+    }
+    return parts.join(' · ');
   }
 
   Widget _title(String text) {

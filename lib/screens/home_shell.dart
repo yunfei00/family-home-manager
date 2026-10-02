@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../ai_home_service.dart';
 import '../data/app_database.dart';
+import '../family_sync_service.dart';
 import '../models.dart';
 import '../photo_store.dart';
 import 'ai_assistant_page.dart';
@@ -29,9 +30,76 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
   int _dataRevision = 0;
+  bool _syncBusy = false;
+  AutoSyncStatus _syncStatus = AutoSyncStatus.notConfigured;
+  String _syncMessage = '尚未同步';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _runAutoSync();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _runAutoSync();
+    }
+  }
+
+  Future<void> _runAutoSync({bool force = false}) async {
+    if (_syncBusy) return;
+    setState(() {
+      _syncBusy = true;
+    });
+
+    try {
+      final result = await FamilySyncService.instance.autoSync(force: force);
+      if (!mounted) return;
+
+      setState(() {
+        _syncStatus = result.status;
+        _syncMessage = result.message;
+        if (result.localDataChanged) {
+          _dataRevision++;
+        }
+      });
+
+      if (force ||
+          result.status == AutoSyncStatus.conflict ||
+          result.status == AutoSyncStatus.downloaded) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result.message)),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _syncBusy = false;
+        });
+      }
+    }
+  }
+
+  IconData get _syncIcon {
+    return switch (_syncStatus) {
+      AutoSyncStatus.inSync ||
+      AutoSyncStatus.uploaded ||
+      AutoSyncStatus.downloaded =>
+        Icons.cloud_done_outlined,
+      AutoSyncStatus.conflict || AutoSyncStatus.inconsistent =>
+        Icons.sync_problem_outlined,
+      AutoSyncStatus.offline => Icons.cloud_off_outlined,
+      AutoSyncStatus.disabled => Icons.sync_disabled_outlined,
+      AutoSyncStatus.notConfigured => Icons.cloud_outlined,
+    };
+  }
 
   Future<void> _fastEntry() async {
     final changed = await Navigator.of(context).push<bool>(
@@ -60,6 +128,9 @@ class _HomeShellState extends State<HomeShell> {
         _dataRevision++;
       });
     }
+    if (mounted) {
+      await _runAutoSync();
+    }
   }
 
   Future<void> _scanLocation() async {
@@ -72,6 +143,12 @@ class _HomeShellState extends State<HomeShell> {
         builder: (_) => LocationDetailPage(location: location),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   @override
@@ -88,6 +165,23 @@ class _HomeShellState extends State<HomeShell> {
       appBar: AppBar(
         title: const Text('家庭管理'),
         actions: [
+          if (_syncBusy)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              child: Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            )
+          else
+            IconButton(
+              tooltip: _syncMessage,
+              onPressed: () => _runAutoSync(force: true),
+              icon: Icon(_syncIcon),
+            ),
           IconButton(
             tooltip: 'AI 家庭助手',
             onPressed: _openAiAssistant,

@@ -13,3 +13,13 @@ services:
       FHM_VISION_MODEL: ${FHM_VISION_MODEL:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=2).read()"
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 6
