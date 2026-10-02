@@ -84,6 +84,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       if (result.localDataChanged) {
         await ReminderService.instance.refreshAndNotify();
       }
+      if (!mounted) return;
 
       if (force ||
           result.status == AutoSyncStatus.conflict ||
