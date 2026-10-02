@@ -129,6 +129,15 @@ class SyncStore:
         with self._connect() as conn:
             self._get_authorized(family_id, token, conn)
 
+    def get_meta(self, family_id: str, token: str) -> dict[str, Any]:
+        with self._connect() as conn:
+            row = self._get_authorized(family_id, token, conn)
+            return {
+                "revision": int(row["revision"]),
+                "has_backup": row["backup_json"] is not None,
+                "updated_at": row["updated_at"],
+            }
+
     def get_backup(self, family_id: str, token: str) -> dict[str, Any]:
         with self._connect() as conn:
             row = self._get_authorized(family_id, token, conn)
@@ -212,6 +221,18 @@ def health() -> dict[str, str]:
 @app.post("/api/v1/families", status_code=201)
 def create_family(request: FamilyCreate) -> dict[str, Any]:
     return store.create_family(request.name)
+
+
+@app.get("/api/v1/families/{family_id}/meta")
+def get_meta(
+    family_id: str,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    token = _bearer_token(authorization)
+    try:
+        return store.get_meta(family_id, token)
+    except PermissionError as error:
+        raise HTTPException(status_code=401, detail=str(error)) from error
 
 
 @app.get("/api/v1/families/{family_id}/backup")
