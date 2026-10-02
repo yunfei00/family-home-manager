@@ -21,6 +21,8 @@ class FamilySyncService {
 
   static final FamilySyncService instance = FamilySyncService._();
 
+  static const defaultServerUrl = 'http://106.52.122.214:8787';
+
   static const _serverUrlKey = 'sync_server_url';
   static const _familyIdKey = 'sync_family_id';
   static const _tokenKey = 'sync_token';
@@ -29,7 +31,7 @@ class FamilySyncService {
   Future<SyncProfile> loadProfile() async {
     final prefs = await SharedPreferences.getInstance();
     return SyncProfile(
-      serverUrl: prefs.getString(_serverUrlKey) ?? '',
+      serverUrl: prefs.getString(_serverUrlKey) ?? defaultServerUrl,
       familyId: prefs.getString(_familyIdKey) ?? '',
       token: prefs.getString(_tokenKey) ?? '',
       revision: prefs.getInt(_revisionKey) ?? 0,
