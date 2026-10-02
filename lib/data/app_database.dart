@@ -17,7 +17,7 @@ class AppDatabase {
     final dbPath = await getDatabasesPath();
     final db = await openDatabase(
       p.join(dbPath, 'family_home_manager.db'),
-      version: 6,
+      version: 7,
       onCreate: _createSchema,
       onUpgrade: _upgradeSchema,
     );
@@ -113,6 +113,15 @@ class AppDatabase {
         checked INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         FOREIGN KEY(item_id) REFERENCES items(id)
+      )
+    ''');
+
+    await database.execute('''
+      CREATE TABLE family_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        created_at TEXT NOT NULL
       )
     ''');
 
@@ -222,6 +231,16 @@ class AppDatabase {
       await database.execute(
         'CREATE INDEX IF NOT EXISTS idx_shopping_list_checked ON shopping_list(checked)',
       );
+    }
+    if (oldVersion < 7) {
+      await database.execute('''
+        CREATE TABLE IF NOT EXISTS family_members (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'member',
+          created_at TEXT NOT NULL
+        )
+      ''');
     }
   }
 
@@ -851,6 +870,123 @@ class AppDatabase {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  Future<List<FamilyMember>> getFamilyMembers() async {
+    final db = await database;
+    final rows = await db.query(
+      'family_members',
+      orderBy: "CASE role WHEN 'owner' THEN 0 ELSE 1 END, created_at ASC",
+    );
+    return rows.map(FamilyMember.fromMap).toList();
+  }
+
+  Future<int> addFamilyMember({
+    required String name,
+    String role = 'member',
+  }) async {
+    final cleanName = name.trim();
+    if (cleanName.isEmpty) {
+      throw ArgumentError('Family member name cannot be empty');
+    }
+    final db = await database;
+    return db.insert('family_members', {
+      'name': cleanName,
+      'role': role == 'owner' ? 'owner' : 'member',
+      'created_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<void> deleteFamilyMember(int id) async {
+    final db = await database;
+    await db.delete(
+      'family_members',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<Map<String, List<Map<String, Object?>>>> exportBackupTables() async {
+    final db = await database;
+    const tables = <String>[
+      'locations',
+      'items',
+      'inventory_sessions',
+      'inventory_checks',
+      'inventory_unexpected_items',
+      'item_movements',
+      'shopping_list',
+      'family_members',
+    ];
+
+    final result = <String, List<Map<String, Object?>>>{};
+    for (final table in tables) {
+      result[table] = await db.query(table);
+    }
+    return result;
+  }
+
+  Future<void> replaceAllFromBackup(
+    Map<String, Object?> backupTables,
+  ) async {
+    const insertOrder = <String>[
+      'locations',
+      'family_members',
+      'items',
+      'inventory_sessions',
+      'inventory_checks',
+      'inventory_unexpected_items',
+      'item_movements',
+      'shopping_list',
+    ];
+    const deleteOrder = <String>[
+      'inventory_checks',
+      'inventory_unexpected_items',
+      'item_movements',
+      'shopping_list',
+      'inventory_sessions',
+      'items',
+      'locations',
+      'family_members',
+    ];
+
+    final normalized = <String, List<Map<String, Object?>>>{};
+    for (final table in insertOrder) {
+      final raw = backupTables[table];
+      if (raw == null) {
+        normalized[table] = <Map<String, Object?>>[];
+        continue;
+      }
+      if (raw is! List) {
+        throw FormatException('Invalid backup table: $table');
+      }
+      normalized[table] = [
+        for (final row in raw)
+          if (row is Map)
+            Map<String, Object?>.from(row.cast<String, Object?>()),
+      ];
+    }
+
+    if ((normalized['locations'] ?? const []).isEmpty) {
+      throw const FormatException('Backup does not contain locations');
+    }
+
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final table in deleteOrder) {
+        await txn.delete(table);
+      }
+
+      for (final table in insertOrder) {
+        for (final row in normalized[table]!) {
+          await txn.insert(
+            table,
+            row,
+            conflictAlgorithm: ConflictAlgorithm.abort,
+          );
+        }
+      }
+    });
   }
 
   Future<Map<String, int>> getSummary() async {

@@ -223,3 +223,46 @@ class ShoppingListEntry {
     );
   }
 }
+
+
+class FamilyMember {
+  const FamilyMember({
+    required this.id,
+    required this.name,
+    required this.role,
+    required this.createdAt,
+  });
+
+  final int id;
+  final String name;
+  final String role;
+  final DateTime createdAt;
+
+  factory FamilyMember.fromMap(Map<String, Object?> map) {
+    return FamilyMember(
+      id: map['id'] as int,
+      name: map['name'] as String,
+      role: (map['role'] as String?) ?? 'member',
+      createdAt: DateTime.parse(map['created_at'] as String),
+    );
+  }
+}
+
+class SyncProfile {
+  const SyncProfile({
+    required this.serverUrl,
+    required this.familyId,
+    required this.token,
+    required this.revision,
+  });
+
+  final String serverUrl;
+  final String familyId;
+  final String token;
+  final int revision;
+
+  bool get isConfigured =>
+      serverUrl.trim().isNotEmpty &&
+      familyId.trim().isNotEmpty &&
+      token.trim().isNotEmpty;
+}

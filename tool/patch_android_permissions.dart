@@ -34,6 +34,13 @@ void main() {
     );
   }
 
+  if (!content.contains('android:usesCleartextTraffic=')) {
+    content = content.replaceFirst(
+      applicationMarker,
+      '$applicationMarker\n        android:usesCleartextTraffic="true"',
+    );
+  }
+
   const recognitionQuery =
       '            <action android:name="android.speech.RecognitionService" />';
   if (!content.contains(recognitionQuery)) {
