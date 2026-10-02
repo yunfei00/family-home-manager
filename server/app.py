@@ -12,6 +12,21 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+try:
+    from .ai_service import (
+        ask_household,
+        classify_item,
+        provider_config,
+        recognize_image,
+    )
+except ImportError:
+    from ai_service import (
+        ask_household,
+        classify_item,
+        provider_config,
+        recognize_image,
+    )
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -28,6 +43,21 @@ class FamilyCreate(BaseModel):
 class BackupPut(BaseModel):
     expected_revision: int = Field(ge=0)
     backup: dict[str, Any]
+
+
+class AIAskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=500)
+    items: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AIClassifyRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    notes: str = Field(default="", max_length=1000)
+
+
+class AIVisionRequest(BaseModel):
+    image_base64: str = Field(min_length=1)
+    mime_type: str = Field(default="image/jpeg", max_length=100)
 
 
 class SyncStore:
@@ -95,6 +125,10 @@ class SyncStore:
             raise PermissionError("invalid family id or token")
         return row
 
+    def authorize(self, family_id: str, token: str) -> None:
+        with self._connect() as conn:
+            self._get_authorized(family_id, token, conn)
+
     def get_backup(self, family_id: str, token: str) -> dict[str, Any]:
         with self._connect() as conn:
             row = self._get_authorized(family_id, token, conn)
@@ -161,6 +195,15 @@ def _bearer_token(authorization: str | None) -> str:
     return token
 
 
+def _authorize_family(family_id: str, authorization: str | None) -> str:
+    token = _bearer_token(authorization)
+    try:
+        store.authorize(family_id, token)
+    except PermissionError as error:
+        raise HTTPException(status_code=401, detail=str(error)) from error
+    return token
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -213,3 +256,49 @@ def put_backup(
         )
 
     return {"revision": revision}
+
+
+
+@app.get("/api/v1/families/{family_id}/ai/status")
+def ai_status(
+    family_id: str,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _authorize_family(family_id, authorization)
+    config = provider_config()
+    return {
+        "configured": config["configured"],
+        "model": config["model"],
+        "vision_model": config["vision_model"],
+        "fallback": "local-rules",
+    }
+
+
+@app.post("/api/v1/families/{family_id}/ai/ask")
+def ai_ask(
+    family_id: str,
+    request: AIAskRequest,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _authorize_family(family_id, authorization)
+    return ask_household(request.question, request.items)
+
+
+@app.post("/api/v1/families/{family_id}/ai/classify")
+def ai_classify(
+    family_id: str,
+    request: AIClassifyRequest,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _authorize_family(family_id, authorization)
+    return classify_item(request.name, request.notes)
+
+
+@app.post("/api/v1/families/{family_id}/ai/vision")
+def ai_vision(
+    family_id: str,
+    request: AIVisionRequest,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _authorize_family(family_id, authorization)
+    return recognize_image(request.image_base64, request.mime_type)
