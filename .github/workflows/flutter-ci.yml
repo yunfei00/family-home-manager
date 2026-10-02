@@ -79,3 +79,15 @@ jobs:
 
       - name: Build sync server image
         run: docker build -t family-home-manager-sync ./server
+
+      - name: Smoke test sync server container
+        run: |
+          docker run -d --name fhm-sync-ci -p 8787:8787 family-home-manager-sync
+          for i in {1..20}; do
+            if curl -fsS http://127.0.0.1:8787/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs fhm-sync-ci
+          exit 1
