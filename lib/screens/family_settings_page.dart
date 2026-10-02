@@ -21,7 +21,7 @@ class _FamilySettingsPageState extends State<FamilySettingsPage> {
 
   late Future<List<FamilyMember>> _members;
   SyncProfile _profile = const SyncProfile(
-    serverUrl: '',
+    serverUrl: FamilySyncService.defaultServerUrl,
     familyId: '',
     token: '',
     revision: 0,
@@ -413,7 +413,7 @@ class _FamilySettingsPageState extends State<FamilySettingsPage> {
               keyboardType: TextInputType.url,
               decoration: const InputDecoration(
                 labelText: '服务器地址',
-                hintText: '例如：http://192.168.1.20:8787',
+                hintText: FamilySyncService.defaultServerUrl,
                 border: OutlineInputBorder(),
               ),
             ),
@@ -513,8 +513,9 @@ class _FamilySettingsPageState extends State<FamilySettingsPage> {
             ),
             const SizedBox(height: 12),
             const Text(
-              '建议：第一台手机创建家庭空间并上传；第二台手机填入同一组服务器地址、家庭 ID、密钥，然后先“下载服务器”。'
-              '若服务器部署在公网，请使用 HTTPS；HTTP 仅建议用于可信家庭局域网/VPN。',
+              '当前默认服务器：http://106.52.122.214:8787。'
+              '建议：第一台手机创建家庭空间并上传；第二台手机填入同一组 Family ID、密钥，然后先“下载服务器”。'
+              '当前地址使用 HTTP，公网使用时 Family Token 不会被传输加密，后续建议升级为 HTTPS。',
             ),
             if (_busy) ...[
               const SizedBox(height: 20),
