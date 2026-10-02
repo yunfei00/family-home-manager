@@ -152,3 +152,45 @@ def test_ai_fallback_endpoints_require_auth_and_answer_locally(monkeypatch):
         )
         assert vision.status_code == 200
         assert vision.json()["available"] is False
+
+
+
+def test_sync_meta_returns_revision_without_backup_payload():
+    with tempfile.TemporaryDirectory() as directory:
+        client = _client(Path(directory))
+        created = client.post(
+            "/api/v1/families",
+            json={"name": "自动同步家庭"},
+        ).json()
+        family_id = created["family_id"]
+        headers = {"Authorization": f"Bearer {created['token']}"}
+
+        meta0 = client.get(
+            f"/api/v1/families/{family_id}/meta",
+            headers=headers,
+        )
+        assert meta0.status_code == 200
+        assert meta0.json()["revision"] == 0
+        assert meta0.json()["has_backup"] is False
+        assert "backup" not in meta0.json()
+
+        backup = {
+            "format": "family-home-manager-backup",
+            "format_version": 1,
+            "tables": {"locations": [{"id": 1, "name": "我的家"}]},
+            "photos": {},
+        }
+        pushed = client.put(
+            f"/api/v1/families/{family_id}/backup",
+            headers=headers,
+            json={"expected_revision": 0, "backup": backup},
+        )
+        assert pushed.status_code == 200
+
+        meta1 = client.get(
+            f"/api/v1/families/{family_id}/meta",
+            headers=headers,
+        )
+        assert meta1.status_code == 200
+        assert meta1.json()["revision"] == 1
+        assert meta1.json()["has_backup"] is True
