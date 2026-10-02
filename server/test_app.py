@@ -85,3 +85,70 @@ def test_rejects_bad_token_and_bad_format():
             },
         )
         assert bad.status_code == 400
+
+
+
+def test_ai_fallback_endpoints_require_auth_and_answer_locally(monkeypatch):
+    monkeypatch.delenv("FHM_LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("FHM_LLM_MODEL", raising=False)
+    monkeypatch.delenv("FHM_VISION_MODEL", raising=False)
+
+    with tempfile.TemporaryDirectory() as directory:
+        client = _client(Path(directory))
+        created = client.post("/api/v1/families", json={"name": "AI家庭"}).json()
+        family_id = created["family_id"]
+        headers = {"Authorization": f"Bearer {created['token']}"}
+
+        denied = client.get(
+            f"/api/v1/families/{family_id}/ai/status",
+            headers={"Authorization": "Bearer wrong"},
+        )
+        assert denied.status_code == 401
+
+        status = client.get(
+            f"/api/v1/families/{family_id}/ai/status",
+            headers=headers,
+        )
+        assert status.status_code == 200
+        assert status.json()["configured"] is False
+        assert status.json()["fallback"] == "local-rules"
+
+        classified = client.post(
+            f"/api/v1/families/{family_id}/ai/classify",
+            headers=headers,
+            json={"name": "儿童体温计", "notes": ""},
+        )
+        assert classified.status_code == 200
+        assert classified.json()["category"] == "医药"
+        assert classified.json()["source"] == "local"
+
+        asked = client.post(
+            f"/api/v1/families/{family_id}/ai/ask",
+            headers=headers,
+            json={
+                "question": "体温计在哪里？",
+                "items": [
+                    {
+                        "name": "体温计",
+                        "category": "医药",
+                        "location": "我的家 / 卫生间 / 医药盒",
+                        "quantity": 1,
+                        "unit": "个",
+                    }
+                ],
+            },
+        )
+        assert asked.status_code == 200
+        assert "卫生间" in asked.json()["answer"]
+        assert asked.json()["source"] == "local"
+
+        vision = client.post(
+            f"/api/v1/families/{family_id}/ai/vision",
+            headers=headers,
+            json={
+                "image_base64": "ZmFrZQ==",
+                "mime_type": "image/jpeg",
+            },
+        )
+        assert vision.status_code == 200
+        assert vision.json()["available"] is False

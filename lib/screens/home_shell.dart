@@ -3,9 +3,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../ai_home_service.dart';
 import '../data/app_database.dart';
 import '../models.dart';
 import '../photo_store.dart';
+import 'ai_assistant_page.dart';
 import 'family_settings_page.dart';
 import 'fast_entry_page.dart';
 import 'inventory_pro.dart';
@@ -41,6 +43,12 @@ class _HomeShellState extends State<HomeShell> {
         _index = 1;
       });
     }
+  }
+
+  Future<void> _openAiAssistant() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const AiAssistantPage()),
+    );
   }
 
   Future<void> _openFamilySettings() async {
@@ -80,6 +88,11 @@ class _HomeShellState extends State<HomeShell> {
       appBar: AppBar(
         title: const Text('家庭管理'),
         actions: [
+          IconButton(
+            tooltip: 'AI 家庭助手',
+            onPressed: _openAiAssistant,
+            icon: const Icon(Icons.auto_awesome),
+          ),
           IconButton(
             tooltip: '家庭与备份',
             onPressed: _openFamilySettings,
@@ -379,6 +392,7 @@ class _AddItemPageState extends State<AddItemPage> {
   int? _locationId;
   bool _saving = false;
   bool _pickingPhoto = false;
+  bool _aiWorking = false;
   String? _photoPath;
 
   Future<void> _pickPhoto(ImageSource source) async {
@@ -410,6 +424,93 @@ class _AddItemPageState extends State<AddItemPage> {
       _photoPath = null;
     });
     await PhotoStore.instance.deletePhoto(oldPath);
+  }
+
+  Future<void> _aiClassify() async {
+    if (_aiWorking) return;
+    if (_name.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('先输入物品名称，再进行智能分类。')),
+      );
+      return;
+    }
+
+    setState(() {
+      _aiWorking = true;
+    });
+    try {
+      final suggestion = await AiHomeService.instance.classify(
+        name: _name.text,
+        notes: _notes.text,
+      );
+      if (!mounted) return;
+      if (suggestion.available) {
+        setState(() {
+          _category.text = suggestion.category;
+          _kind = suggestion.kind;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              suggestion.source == 'llm'
+                  ? 'AI 已建议分类：${suggestion.category}'
+                  : '已按本机规则建议分类：${suggestion.category}',
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(suggestion.message)),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _aiWorking = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _aiRecognizePhoto() async {
+    final path = _photoPath;
+    if (_aiWorking || path == null) return;
+
+    setState(() {
+      _aiWorking = true;
+    });
+    try {
+      final suggestion = await AiHomeService.instance.recognizePhoto(path);
+      if (!mounted) return;
+      if (!suggestion.available) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(suggestion.message)),
+        );
+        return;
+      }
+
+      setState(() {
+        if (suggestion.name.isNotEmpty) {
+          _name.text = suggestion.name;
+        }
+        if (suggestion.category.isNotEmpty) {
+          _category.text = suggestion.category;
+        }
+        _kind = suggestion.kind;
+        if (suggestion.notes.isNotEmpty && _notes.text.trim().isEmpty) {
+          _notes.text = suggestion.notes;
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('AI 已根据照片补充物品信息。')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _aiWorking = false;
+        });
+      }
+    }
   }
 
   @override
@@ -470,12 +571,19 @@ class _AddItemPageState extends State<AddItemPage> {
                     ),
                   ],
                 ),
-                if (_photoPath != null)
+                if (_photoPath != null) ...[
+                  FilledButton.tonalIcon(
+                    onPressed: _aiWorking ? null : _aiRecognizePhoto,
+                    icon: const Icon(Icons.auto_awesome),
+                    label: Text(_aiWorking ? 'AI 处理中…' : 'AI 识别照片'),
+                  ),
                   TextButton.icon(
-                    onPressed: _pickingPhoto ? null : _removePhoto,
+                    onPressed:
+                        _pickingPhoto || _aiWorking ? null : _removePhoto,
                     icon: const Icon(Icons.delete_outline),
                     label: const Text('删除照片'),
                   ),
+                ],
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _category,
@@ -483,6 +591,15 @@ class _AddItemPageState extends State<AddItemPage> {
                     labelText: '分类',
                     hintText: '例如：医药、清洁、玩具、工具',
                     border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: OutlinedButton.icon(
+                    onPressed: _aiWorking ? null : _aiClassify,
+                    icon: const Icon(Icons.auto_fix_high_outlined),
+                    label: const Text('AI 智能分类'),
                   ),
                 ),
                 const SizedBox(height: 12),
