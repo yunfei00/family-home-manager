@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'data/app_database.dart';
+import 'sync_state.dart';
 
 class BackupService {
   BackupService._();
@@ -90,6 +91,7 @@ class BackupService {
     await restoreBackupPayload(
       Map<String, Object?>.from(decoded.cast<String, Object?>()),
     );
+    await SyncStateStore.instance.markDirty();
     return true;
   }
 
