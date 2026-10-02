@@ -4,6 +4,7 @@ flutter --version
 flutter create --platforms=android --project-name family_home_manager --org com.yunfei.family .
 dart run tool/patch_android_permissions.dart
 dart run tool/patch_android_speech_bridge.dart
+dart run tool/patch_android_reminders.dart
 flutter pub get
 
 Write-Host ""
