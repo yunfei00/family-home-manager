@@ -138,7 +138,9 @@ class AiHomeService {
               },
               body: jsonEncode({
                 'question': clean,
-                'items': [_contextItem for (final item in items) item],
+                'items': [
+                  for (final item in items) _contextItem(item),
+                ],
               }),
             )
             .timeout(const Duration(seconds: 40));
