@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../models.dart';
 import '../qr.dart';
+import '../sync_state.dart';
 
 class AppDatabase {
   AppDatabase._();
@@ -259,6 +260,10 @@ class AppDatabase {
     ''');
   }
 
+  Future<void> _markChanged() {
+    return SyncStateStore.instance.markDirty();
+  }
+
   Future<List<LocationNode>> getLocations() async {
     final db = await database;
     final rows = await db.query('locations', orderBy: 'path ASC');
@@ -309,7 +314,7 @@ class AppDatabase {
     final cleanName = name.trim();
     final now = DateTime.now().toIso8601String();
 
-    return db.transaction((txn) async {
+    final id = await db.transaction((txn) async {
       final id = await txn.insert('locations', {
         'name': cleanName,
         'parent_id': parentId,
@@ -326,6 +331,8 @@ class AppDatabase {
       );
       return id;
     });
+    await _markChanged();
+    return id;
   }
 
   Future<List<HomeItem>> getItems({String query = ''}) async {
@@ -382,7 +389,7 @@ class AppDatabase {
   }) async {
     final db = await database;
     final now = DateTime.now().toIso8601String();
-    return db.insert('items', {
+    final id = await db.insert('items', {
       'name': name.trim(),
       'category': category.trim(),
       'kind': kind,
@@ -398,6 +405,8 @@ class AppDatabase {
       'created_at': now,
       'updated_at': now,
     });
+    await _markChanged();
+    return id;
   }
 
   Future<List<int>> addItemsBatch({
@@ -413,7 +422,7 @@ class AppDatabase {
     if (items.isEmpty) return const <int>[];
 
     final db = await database;
-    return db.transaction((txn) async {
+    final ids = await db.transaction((txn) async {
       final now = DateTime.now().toIso8601String();
       final ids = <int>[];
 
@@ -439,6 +448,8 @@ class AppDatabase {
 
       return ids;
     });
+    await _markChanged();
+    return ids;
   }
 
   Future<HomeItem?> getItemById(int id) async {
@@ -468,6 +479,7 @@ class AppDatabase {
       where: 'id = ?',
       whereArgs: [itemId],
     );
+    await _markChanged();
   }
 
   Future<void> updateLocationPhoto(int locationId, String? photoPath) async {
@@ -478,6 +490,7 @@ class AppDatabase {
       where: 'id = ?',
       whereArgs: [locationId],
     );
+    await _markChanged();
   }
 
   Future<void> moveItem({
@@ -517,6 +530,7 @@ class AppDatabase {
         'moved_at': now,
       });
     });
+    await _markChanged();
   }
 
   Future<Map<int, int>> getItemCountsByLocation() async {
@@ -535,7 +549,7 @@ class AppDatabase {
     required Map<int, bool> checks,
   }) async {
     final db = await database;
-    return db.transaction((txn) async {
+    final sessionId = await db.transaction((txn) async {
       final now = DateTime.now().toIso8601String();
       final present = checks.values.where((value) => value).length;
       final missing = checks.length - present;
@@ -559,6 +573,8 @@ class AppDatabase {
 
       return sessionId;
     });
+    await _markChanged();
+    return sessionId;
   }
 
   Future<int> createInventoryProSession({
@@ -568,7 +584,7 @@ class AppDatabase {
     required List<UnexpectedInventoryItem> unexpectedItems,
   }) async {
     final db = await database;
-    return db.transaction((txn) async {
+    final sessionId = await db.transaction((txn) async {
       final now = DateTime.now().toIso8601String();
       final present =
           statuses.values.where((value) => value == 'present').length;
@@ -660,6 +676,8 @@ class AppDatabase {
 
       return sessionId;
     });
+    await _markChanged();
+    return sessionId;
   }
 
   Future<List<InventorySessionSummary>> getRecentInventorySessions({
@@ -739,6 +757,7 @@ class AppDatabase {
       where: 'id = ?',
       whereArgs: [itemId],
     );
+    await _markChanged();
   }
 
   Future<void> setItemQuantity(int itemId, double quantity) async {
@@ -752,6 +771,7 @@ class AppDatabase {
       where: 'id = ?',
       whereArgs: [itemId],
     );
+    await _markChanged();
   }
 
   Future<List<HomeItem>> getConsumableItems() async {
@@ -821,7 +841,7 @@ class AppDatabase {
     required String unit,
   }) async {
     final db = await database;
-    return db.insert('shopping_list', {
+    final id = await db.insert('shopping_list', {
       'item_id': itemId,
       'name': name.trim(),
       'quantity': quantity <= 0 ? 1 : quantity,
@@ -829,6 +849,8 @@ class AppDatabase {
       'checked': 0,
       'created_at': DateTime.now().toIso8601String(),
     });
+    await _markChanged();
+    return id;
   }
 
   Future<bool> addLowStockItemToShoppingList(HomeItem item) async {
@@ -861,6 +883,7 @@ class AppDatabase {
       where: 'id = ?',
       whereArgs: [id],
     );
+    await _markChanged();
   }
 
   Future<void> deleteShoppingListEntry(int id) async {
@@ -870,6 +893,7 @@ class AppDatabase {
       where: 'id = ?',
       whereArgs: [id],
     );
+    await _markChanged();
   }
 
   Future<List<FamilyMember>> getFamilyMembers() async {
@@ -890,11 +914,13 @@ class AppDatabase {
       throw ArgumentError('Family member name cannot be empty');
     }
     final db = await database;
-    return db.insert('family_members', {
+    final id = await db.insert('family_members', {
       'name': cleanName,
       'role': role == 'owner' ? 'owner' : 'member',
       'created_at': DateTime.now().toIso8601String(),
     });
+    await _markChanged();
+    return id;
   }
 
   Future<void> deleteFamilyMember(int id) async {
@@ -904,6 +930,7 @@ class AppDatabase {
       where: 'id = ?',
       whereArgs: [id],
     );
+    await _markChanged();
   }
 
   Future<Map<String, List<Map<String, Object?>>>> exportBackupTables() async {
