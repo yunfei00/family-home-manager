@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/app_database.dart';
 import '../models.dart';
+import '../reminder_service.dart';
 
 String _formatStockQuantity(double value) {
   if (value == value.roundToDouble()) return value.toInt().toString();
@@ -350,6 +351,7 @@ class _StockSettingsPageState extends State<StockSettingsPage> {
         minimumQuantity: _isConsumable ? minimum : null,
         expiryDate: _expiryDate,
       );
+      await ReminderService.instance.refreshAndNotify();
       if (mounted) Navigator.of(context).pop(true);
     } finally {
       if (mounted) {
