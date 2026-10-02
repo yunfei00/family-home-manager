@@ -159,7 +159,7 @@ class ReminderService {
     try {
       await _channel.invokeMethod<bool>('requestPermission');
       await Future<void>.delayed(const Duration(milliseconds: 500));
-      return notificationsEnabled();
+      return await notificationsEnabled();
     } on MissingPluginException {
       return false;
     }
