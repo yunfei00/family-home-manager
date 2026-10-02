@@ -8,3 +8,8 @@ services:
       - ./data:/data
     environment:
       FHM_SYNC_DB: /data/family_sync.db
+      FHM_LLM_BASE_URL: ${FHM_LLM_BASE_URL:-}
+      FHM_LLM_MODEL: ${FHM_LLM_MODEL:-}
+      FHM_VISION_MODEL: ${FHM_VISION_MODEL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
