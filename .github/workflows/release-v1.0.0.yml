@@ -1,0 +1,87 @@
+name: Release v1.0.0
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release-v1.0.0.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check release does not already exist
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v1.0.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Java
+        if: steps.check.outputs.exists != 'true'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        if: steps.check.outputs.exists != 'true'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android platform
+        if: steps.check.outputs.exists != 'true'
+        run: flutter create --platforms=android --project-name family_home_manager --org com.yunfei.family .
+
+      - name: Patch Android permissions
+        if: steps.check.outputs.exists != 'true'
+        run: dart run tool/patch_android_permissions.dart
+
+      - name: Patch Android reminders
+        if: steps.check.outputs.exists != 'true'
+        run: dart run tool/patch_android_reminders.dart
+
+      - name: Install dependencies
+        if: steps.check.outputs.exists != 'true'
+        run: flutter pub get
+
+      - name: Analyze
+        if: steps.check.outputs.exists != 'true'
+        run: flutter analyze
+
+      - name: Test
+        if: steps.check.outputs.exists != 'true'
+        run: flutter test
+
+      - name: Build release APK
+        if: steps.check.outputs.exists != 'true'
+        run: flutter build apk --release
+
+      - name: Prepare release assets
+        if: steps.check.outputs.exists != 'true'
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/Family-Home-Manager-v1.0.0.apk
+          (cd dist && sha256sum Family-Home-Manager-v1.0.0.apk > SHA256SUMS.txt)
+
+      - name: Create GitHub Release
+        if: steps.check.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.0.0             dist/Family-Home-Manager-v1.0.0.apk             dist/SHA256SUMS.txt             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "Family Home Manager v1.0.0"             --notes-file docs/RELEASE_NOTES_v1.0.0.md
