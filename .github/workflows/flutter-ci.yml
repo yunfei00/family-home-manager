@@ -37,6 +37,9 @@ jobs:
       - name: Patch Android speech bridge
         run: dart run tool/patch_android_speech_bridge.dart
 
+      - name: Patch Android reminders
+        run: dart run tool/patch_android_reminders.dart
+
       - name: Install dependencies
         run: flutter pub get
 

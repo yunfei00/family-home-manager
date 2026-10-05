@@ -8,6 +8,7 @@ import '../data/app_database.dart';
 import '../family_sync_service.dart';
 import '../models.dart';
 import '../photo_store.dart';
+import '../reminder_service.dart';
 import 'ai_assistant_page.dart';
 import 'family_settings_page.dart';
 import 'fast_entry_page.dart';
@@ -16,6 +17,7 @@ import 'item_detail_page.dart';
 import 'location_detail_page.dart';
 import 'move_item_page.dart';
 import 'qr_scanner_page.dart';
+import 'reminder_center_page.dart';
 import 'stock_page.dart';
 
 String _formatQuantity(double value) {
@@ -42,15 +44,20 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _runAutoSync();
+      _runMaintenance();
     });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _runAutoSync();
+      _runMaintenance();
     }
+  }
+
+  Future<void> _runMaintenance() async {
+    await _runAutoSync();
+    await ReminderService.instance.refreshAndNotify();
   }
 
   Future<void> _runAutoSync({bool force = false}) async {
@@ -70,6 +77,14 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           _dataRevision++;
         }
       });
+
+      if (result.status == AutoSyncStatus.conflict) {
+        await ReminderService.instance.showSyncConflict(result.message);
+      }
+      if (result.localDataChanged) {
+        await ReminderService.instance.refreshAndNotify();
+      }
+      if (!mounted) return;
 
       if (force ||
           result.status == AutoSyncStatus.conflict ||
@@ -110,6 +125,15 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         _dataRevision++;
         _index = 1;
       });
+    }
+  }
+
+  Future<void> _openReminderCenter() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ReminderCenterPage()),
+    );
+    if (mounted) {
+      await ReminderService.instance.refreshAndNotify();
     }
   }
 
@@ -182,6 +206,11 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               onPressed: () => _runAutoSync(force: true),
               icon: Icon(_syncIcon),
             ),
+          IconButton(
+            tooltip: '提醒中心',
+            onPressed: _openReminderCenter,
+            icon: const Icon(Icons.notifications_outlined),
+          ),
           IconButton(
             tooltip: 'AI 家庭助手',
             onPressed: _openAiAssistant,
