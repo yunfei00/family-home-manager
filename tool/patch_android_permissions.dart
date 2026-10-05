@@ -14,7 +14,6 @@ void main() {
   const applicationMarker = '    <application';
 
   const permissions = [
-    '    <uses-permission android:name="android.permission.RECORD_AUDIO" />',
     '    <uses-permission android:name="android.permission.INTERNET" />',
     '    <uses-permission android:name="android.permission.CAMERA" />',
   ];
@@ -39,19 +38,6 @@ void main() {
       applicationMarker,
       '$applicationMarker\n        android:usesCleartextTraffic="true"',
     );
-  }
-
-  const recognitionQuery =
-      '            <action android:name="android.speech.RecognitionService" />';
-  if (!content.contains(recognitionQuery)) {
-    const queries = '''
-    <queries>
-        <intent>
-            <action android:name="android.speech.RecognitionService" />
-        </intent>
-    </queries>
-''';
-    content = content.replaceFirst(applicationMarker, '$queries$applicationMarker');
   }
 
   file.writeAsStringSync(content);

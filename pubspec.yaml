@@ -1,7 +1,7 @@
 name: family_home_manager
 description: 家庭物品管理与盘库 App
 publish_to: "none"
-version: 0.10.0+10
+version: 1.0.0+12
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -16,7 +16,6 @@ dependencies:
   mobile_scanner: ^7.0.1
   image_picker: ^1.1.2
   path_provider: ^2.1.5
-  speech_to_text: ^7.0.0
   http: ^1.5.0
   shared_preferences: ^2.5.3
   file_picker: ^10.3.3

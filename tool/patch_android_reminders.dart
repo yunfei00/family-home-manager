@@ -261,22 +261,18 @@ object ReminderBridge {
 }
 ''');
 
-  var mainContent = mainActivity.readAsStringSync();
-  const configureLine =
-      '        ReminderBridge.configure(this, flutterEngine)\n';
-  if (!mainContent.contains(configureLine.trim())) {
-    const marker = '        super.configureFlutterEngine(flutterEngine)\n';
-    if (!mainContent.contains(marker)) {
-      stderr.writeln('Unexpected MainActivity.kt format.');
-      exitCode = 1;
-      return;
+  mainActivity.writeAsStringSync(r'''package com.yunfei.family.family_home_manager
+
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+
+class MainActivity : FlutterActivity() {
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        ReminderBridge.configure(this, flutterEngine)
     }
-    mainContent = mainContent.replaceFirst(
-      marker,
-      '$marker\n$configureLine',
-    );
-    mainActivity.writeAsStringSync(mainContent);
-  }
+}
+''');
 
   var manifestContent = manifest.readAsStringSync();
   const manifestMarker =
