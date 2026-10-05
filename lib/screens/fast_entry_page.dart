@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-
 import '../data/app_database.dart';
 import '../fast_entry_parser.dart';
 import '../models.dart';
@@ -14,9 +12,6 @@ class FastEntryPage extends StatefulWidget {
 }
 
 class _FastEntryPageState extends State<FastEntryPage> {
-  static const MethodChannel _speechChannel =
-      MethodChannel('family_home_manager/speech');
-
   static const _categories = <String>[
     '日用品',
     '医药',
@@ -36,9 +31,6 @@ class _FastEntryPageState extends State<FastEntryPage> {
   late Future<List<LocationNode>> _locationsFuture;
   int? _locationId;
   bool _saving = false;
-  bool _speechBusy = false;
-  bool? _speechAvailable;
-  String _speechMessage = '点击“语音录入”会直接打开手机系统语音识别';
   String? _barcode;
 
   @override
@@ -46,9 +38,6 @@ class _FastEntryPageState extends State<FastEntryPage> {
     super.initState();
     _locationsFuture = AppDatabase.instance.getLocations();
     _textController.addListener(_refreshPreview);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkSpeechAvailability();
-    });
   }
 
   List<FastEntryDraft> get _drafts =>
@@ -56,137 +45,6 @@ class _FastEntryPageState extends State<FastEntryPage> {
 
   void _refreshPreview() {
     if (mounted) setState(() {});
-  }
-
-  Future<void> _checkSpeechAvailability() async {
-    try {
-      final raw = await _speechChannel
-          .invokeMethod<Map<Object?, Object?>>('getCapabilities');
-      final capabilities = raw ?? const <Object?, Object?>{};
-      final serviceAvailable = capabilities['serviceAvailable'] == true;
-      final onDeviceAvailable = capabilities['onDeviceAvailable'] == true;
-      final activityAvailable = capabilities['activityAvailable'] == true;
-      final available = serviceAvailable || activityAvailable;
-
-      if (!mounted) return;
-      setState(() {
-        _speechAvailable = available;
-        _speechMessage = onDeviceAvailable
-            ? 'Android 本机语音识别可用'
-            : serviceAvailable
-                ? 'Android 语音识别服务可用'
-                : activityAvailable
-                    ? '系统语音识别界面可用'
-                    : '未检测到 Android 语音识别服务或程序';
-      });
-    } on PlatformException catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _speechAvailable = false;
-        _speechMessage =
-            '无法检查系统语音识别：${error.message ?? error.code}';
-      });
-    } on MissingPluginException {
-      if (!mounted) return;
-      setState(() {
-        _speechAvailable = false;
-        _speechMessage = '当前安装包没有语音桥接，请安装最新版本';
-      });
-    }
-  }
-
-  Future<void> _startSpeech() async {
-    if (_speechBusy) return;
-
-    setState(() {
-      _speechBusy = true;
-      _speechMessage = '正在准备 Android 语音识别…';
-    });
-
-    try {
-      final permission = await _speechChannel
-              .invokeMethod<bool>('requestAudioPermission') ??
-          false;
-      if (!mounted) return;
-      if (!permission) {
-        setState(() {
-          _speechMessage = '麦克风权限未允许，无法进行语音录入';
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('请允许麦克风权限后再使用语音录入。')),
-        );
-        return;
-      }
-
-      setState(() {
-        _speechMessage = '正在听，请说话…';
-      });
-
-      final spoken = await _speechChannel
-          .invokeMethod<String>('recognizeOnce', <String, Object?>{
-        'locale': 'zh-CN',
-        'prompt': '请说出要录入的家庭物品，例如：牙膏3支，口罩2盒',
-      }).timeout(
-        const Duration(seconds: 45),
-        onTimeout: () async {
-          await _speechChannel.invokeMethod<void>('cancelRecognition');
-          return null;
-        },
-      );
-
-      if (!mounted) return;
-      final text = spoken?.trim() ?? '';
-      if (text.isEmpty) {
-        setState(() {
-          _speechMessage = '没有收到识别结果，可以再点一次重试';
-        });
-        return;
-      }
-
-      final old = _textController.text.trim();
-      _textController.text = old.isEmpty ? text : '$old，$text';
-      _textController.selection = TextSelection.collapsed(
-        offset: _textController.text.length,
-      );
-      setState(() {
-        _speechAvailable = true;
-        _speechMessage = '识别完成：$text';
-      });
-    } on PlatformException catch (error) {
-      if (!mounted) return;
-      final message = switch (error.code) {
-        'not_available' => '本机没有 Android 语音识别服务或程序',
-        'permission_denied' => '麦克风权限未允许',
-        'busy' || 'permission_busy' => '语音识别正在使用中，请稍后再试',
-        'timeout' => '语音识别超时，请再试一次',
-        'recognition_error' => '语音识别失败：${error.message ?? ''}',
-        _ => '系统语音输入失败：${error.message ?? error.code}',
-      };
-      setState(() {
-        _speechAvailable = error.code == 'not_available' ? false : _speechAvailable;
-        _speechMessage = message;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-    } on MissingPluginException {
-      if (!mounted) return;
-      setState(() {
-        _speechAvailable = false;
-        _speechMessage = '当前安装包没有语音桥接，请安装最新 APK';
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _speechMessage = '系统语音输入失败：$error';
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _speechBusy = false;
-        });
-      }
-    }
   }
 
   Future<void> _scanBarcode() async {
@@ -347,52 +205,15 @@ class _FastEntryPageState extends State<FastEntryPage> {
                 ),
               ),
               const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.tonalIcon(
-                      onPressed: _saving || _speechBusy
-                          ? null
-                          : _startSpeech,
-                      icon: Icon(
-                        _speechBusy
-                            ? Icons.graphic_eq
-                            : Icons.mic_none_outlined,
-                      ),
-                      label: Text(
-                        _speechBusy ? '等待系统识别…' : '语音录入',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _saving ? null : _scanBarcode,
-                      icon: const Icon(Icons.qr_code_scanner),
-                      label: const Text('扫商品条码'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Card(
-                child: ListTile(
-                  leading: Icon(
-                    _speechAvailable == false
-                        ? Icons.mic_off_outlined
-                        : Icons.record_voice_over_outlined,
-                  ),
-                  title: Text(_speechMessage),
-                  subtitle: const Text(
-                    '优先使用 Android SpeechRecognizer 服务；没有服务时再尝试系统语音识别界面，不再依赖 speech_to_text。',
-                  ),
-                  trailing: IconButton(
-                    tooltip: '重新检测',
-                    onPressed: _speechBusy ? null : _checkSpeechAvailability,
-                    icon: const Icon(Icons.refresh),
-                  ),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _saving ? null : _scanBarcode,
+                  icon: const Icon(Icons.qr_code_scanner),
+                  label: const Text('扫商品条码'),
                 ),
               ),
+              const SizedBox(height: 8),
               if (_barcode != null) ...[
                 const SizedBox(height: 10),
                 Card(
