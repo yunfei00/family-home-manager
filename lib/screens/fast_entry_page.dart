@@ -60,14 +60,24 @@ class _FastEntryPageState extends State<FastEntryPage> {
 
   Future<void> _checkSpeechAvailability() async {
     try {
-      final available =
-          await _speechChannel.invokeMethod<bool>('isAvailable') ?? false;
+      final raw = await _speechChannel
+          .invokeMethod<Map<Object?, Object?>>('getCapabilities');
+      final capabilities = raw ?? const <Object?, Object?>{};
+      final serviceAvailable = capabilities['serviceAvailable'] == true;
+      final onDeviceAvailable = capabilities['onDeviceAvailable'] == true;
+      final activityAvailable = capabilities['activityAvailable'] == true;
+      final available = serviceAvailable || activityAvailable;
+
       if (!mounted) return;
       setState(() {
         _speechAvailable = available;
-        _speechMessage = available
-            ? '系统语音识别可用，点击按钮后直接说出物品'
-            : '本机未检测到系统语音识别程序';
+        _speechMessage = onDeviceAvailable
+            ? 'Android 本机语音识别可用'
+            : serviceAvailable
+                ? 'Android 语音识别服务可用'
+                : activityAvailable
+                    ? '系统语音识别界面可用'
+                    : '未检测到 Android 语音识别服务或程序';
       });
     } on PlatformException catch (error) {
       if (!mounted) return;
@@ -90,17 +100,38 @@ class _FastEntryPageState extends State<FastEntryPage> {
 
     setState(() {
       _speechBusy = true;
-      _speechMessage = '正在打开系统语音识别…';
+      _speechMessage = '正在准备 Android 语音识别…';
     });
 
     try {
+      final permission = await _speechChannel
+              .invokeMethod<bool>('requestAudioPermission') ??
+          false;
+      if (!mounted) return;
+      if (!permission) {
+        setState(() {
+          _speechMessage = '麦克风权限未允许，无法进行语音录入';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('请允许麦克风权限后再使用语音录入。')),
+        );
+        return;
+      }
+
+      setState(() {
+        _speechMessage = '正在听，请说话…';
+      });
+
       final spoken = await _speechChannel
           .invokeMethod<String>('recognizeOnce', <String, Object?>{
         'locale': 'zh-CN',
         'prompt': '请说出要录入的家庭物品，例如：牙膏3支，口罩2盒',
       }).timeout(
-        const Duration(seconds: 90),
-        onTimeout: () => null,
+        const Duration(seconds: 45),
+        onTimeout: () async {
+          await _speechChannel.invokeMethod<void>('cancelRecognition');
+          return null;
+        },
       );
 
       if (!mounted) return;
@@ -124,8 +155,11 @@ class _FastEntryPageState extends State<FastEntryPage> {
     } on PlatformException catch (error) {
       if (!mounted) return;
       final message = switch (error.code) {
-        'not_available' => '本机没有可调用的系统语音识别程序',
-        'busy' => '语音识别正在使用中，请稍后再试',
+        'not_available' => '本机没有 Android 语音识别服务或程序',
+        'permission_denied' => '麦克风权限未允许',
+        'busy' || 'permission_busy' => '语音识别正在使用中，请稍后再试',
+        'timeout' => '语音识别超时，请再试一次',
+        'recognition_error' => '语音识别失败：${error.message ?? ''}',
         _ => '系统语音输入失败：${error.message ?? error.code}',
       };
       setState(() {
@@ -350,7 +384,7 @@ class _FastEntryPageState extends State<FastEntryPage> {
                   ),
                   title: Text(_speechMessage),
                   subtitle: const Text(
-                    '这一版不再等待 speech_to_text 初始化，而是直接调用 Android 系统语音识别界面。',
+                    '优先使用 Android SpeechRecognizer 服务；没有服务时再尝试系统语音识别界面，不再依赖 speech_to_text。',
                   ),
                   trailing: IconButton(
                     tooltip: '重新检测',
