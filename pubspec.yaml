@@ -1,7 +1,7 @@
 name: family_home_manager
 description: 家庭物品管理与盘库 App
 publish_to: "none"
-version: 0.11.0+11
+version: 1.0.0+12
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
